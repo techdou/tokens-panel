@@ -41,3 +41,15 @@ async def run_query(provider: str, api_key: str, **config: Any) -> ProviderResul
         )
     module: ModuleType = meta["module"]
     return await module.query(api_key, **config)
+
+
+async def run_list_models(provider: str, api_key: str, **config: Any) -> list:
+    """动态拉取某家的模型列表。provider 不支持时返回空列表。"""
+    meta = _REGISTRY.get(provider)
+    if not meta:
+        return []
+    module: ModuleType = meta["module"]
+    fn = getattr(module, "list_models", None)
+    if fn is None:
+        return []
+    return await fn(api_key, **config)

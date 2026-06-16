@@ -29,10 +29,24 @@ log = logging.getLogger(__name__)
 DISPLAY_NAME = "智谱 GLM Coding Plan"
 ENDPOINT_CN = "https://open.bigmodel.cn/api/monitor/usage/quota/limit"
 ENDPOINT_INTL = "https://api.z.ai/api/monitor/usage/quota/limit"
+# models 列表端点（coding plan 用 coding paas 端点）
+MODELS_ENDPOINT_CN = "https://open.bigmodel.cn/api/coding/paas/v4/models"
+MODELS_ENDPOINT_INTL = "https://api.z.ai/api/coding/paas/v4/models"
 
 # unit 字段含义（来自 cc-switch issue #3036）
 UNIT_FIVE_HOUR = 3
 UNIT_WEEKLY = 6
+
+
+async def list_models(api_key: str, **config: Any) -> list:
+    """拉取 GLM 可用模型。注意不加 Bearer（同 quota 接口）。"""
+    from .base import fetch_models_openai_compat
+    endpoint = MODELS_ENDPOINT_INTL if str(config.get("region", "")).lower() in ("intl", "international", "zai") else MODELS_ENDPOINT_CN
+    headers = {
+        "Authorization": api_key,  # ⚠️ 不加 Bearer
+        "Accept-Language": "en-US,en",
+    }
+    return await fetch_models_openai_compat(endpoint, headers)
 
 
 async def query(api_key: str, **config: Any) -> ProviderResult:

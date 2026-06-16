@@ -27,6 +27,15 @@ log = logging.getLogger(__name__)
 DISPLAY_NAME = "MiniMax Coding Plan"
 ENDPOINT_CN = "https://api.minimaxi.com/v1/api/openplatform/coding_plan/remains"
 ENDPOINT_INTL = "https://api.minimax.io/v1/api/openplatform/coding_plan/remains"
+MODELS_ENDPOINT_CN = "https://api.minimaxi.com/v1/models"
+MODELS_ENDPOINT_INTL = "https://api.minimax.io/v1/models"
+
+
+async def list_models(api_key: str, **config: Any) -> list:
+    from .base import fetch_models_openai_compat
+    endpoint = MODELS_ENDPOINT_INTL if str(config.get("region", "")).lower() in ("intl", "international", "io") else MODELS_ENDPOINT_CN
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    return await fetch_models_openai_compat(endpoint, headers)
 
 
 async def query(api_key: str, **config: Any) -> ProviderResult:

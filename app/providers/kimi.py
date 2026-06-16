@@ -28,6 +28,13 @@ log = logging.getLogger(__name__)
 
 DISPLAY_NAME = "Kimi for Coding"
 ENDPOINT = "https://api.kimi.com/coding/v1/usages"
+MODELS_ENDPOINT = "https://api.kimi.com/coding/v1/models"
+
+
+async def list_models(api_key: str, **_config: Any) -> list:
+    from .base import fetch_models_openai_compat
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    return await fetch_models_openai_compat(MODELS_ENDPOINT, headers)
 
 
 async def query(api_key: str, **_config: Any) -> ProviderResult:

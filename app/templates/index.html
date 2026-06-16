@@ -58,6 +58,9 @@
           <button @click="tab='trend'; loadTrend()"
                   :class="tab==='trend' ? 'bg-slate-800 text-white' : 'bg-white border'"
                   class="text-sm font-medium px-4 py-2 rounded-lg">📈 趋势</button>
+          <button @click="tab='models'; loadModels()"
+                  :class="tab==='models' ? 'bg-slate-800 text-white' : 'bg-white border'"
+                  class="text-sm font-medium px-4 py-2 rounded-lg">🧠 模型</button>
           <button @click="logout()" class="text-sm text-slate-500 hover:text-slate-800 px-3 py-2">退出</button>
         </div>
       </header>
@@ -320,6 +323,112 @@
         </div>
         <button @click="tab='overview'" class="text-sm text-indigo-600 hover:underline">← 返回总览</button>
       </div>
+
+      <!-- 模型能力页 -->
+      <div x-show="tab==='models'" class="space-y-4">
+        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+          <div class="flex items-center justify-between mb-2">
+            <h2 class="font-semibold text-lg">🧠 各家模型能力</h2>
+            <span class="text-xs text-slate-400" x-show="modelsData.last_updated">数据更新于 <span x-text="modelsData.last_updated"></span></span>
+          </div>
+          <p class="text-sm text-slate-500 mb-4">
+            上下文长度、思考模式、最大输出的对比。<span class="text-amber-600">⚠️ 模型能力随厂商更新而变化，此表需定期人工核实。</span>
+          </p>
+
+          <!-- 动态查询 -->
+          <div class="mb-6 p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+            <p class="text-sm font-medium text-indigo-900 mb-2">🔄 动态查询当前可用模型</p>
+            <p class="text-xs text-indigo-700 mb-3">用某账户的 key 实时拉取该家 <code>/v1/models</code>，能看到厂商新加了哪些模型。能力详情（思考/上下文）仍由静态表补充，拿不到的显示"未知"。</p>
+            <div class="flex flex-wrap items-center gap-2">
+              <select x-model="liveModels.accountId"
+                      class="px-3 py-1.5 text-sm border border-indigo-200 rounded outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                <option value="">— 选择账户 —</option>
+                <template x-for="a in accounts" :key="a.id">
+                  <option :value="a.id" x-text="a.display_name + ' (' + providerDisplayName(a.provider) + ')'"></option>
+                </template>
+              </select>
+              <button @click="loadLiveModels()" :disabled="!liveModels.accountId || liveModels.loading"
+                      class="bg-indigo-600 text-white text-sm px-4 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50">
+                <span x-show="!liveModels.loading">查询实时模型</span><span x-show="liveModels.loading">查询中…</span>
+              </button>
+              <span x-show="liveModels.error" class="text-sm text-red-500" x-text="liveModels.error"></span>
+            </div>
+            <div x-show="liveModels.result" class="mt-3">
+              <p class="text-xs text-slate-500 mb-1">
+                <span x-text="liveModels.result?.display_name"></span>：
+                <span x-show="liveModels.result?.live_count !== undefined">实时 <span class="font-medium" x-text="liveModels.result?.live_count"></span> 个模型</span>
+                <span x-show="liveModels.result?.live_error" class="text-amber-600">（实时拉取失败，显示静态：<span x-text="liveModels.result?.live_error"></span>）</span>
+              </p>
+              <div class="flex flex-wrap gap-1.5">
+                <template x-for="m in (liveModels.result?.models || [])" :key="m.id">
+                  <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-white border"
+                        :class="m.thinking==='unknown' ? 'border-amber-200 text-amber-700' : 'border-slate-200 text-slate-600'">
+                    <code class="font-mono" x-text="m.id"></code>
+                    <span x-show="m.context" class="text-slate-400">· <span x-text="fmtContext(m.context)"></span></span>
+                    <span x-show="m.thinking==='unknown'" class="text-amber-500">⚠️未知</span>
+                  </span>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <template x-for="(modelList, provider) in modelsData.models" :key="provider">
+            <div class="mb-6">
+              <h3 class="font-medium text-slate-700 mb-2 pb-1 border-b" x-text="providerDisplayName(provider)"></h3>
+              <div class="overflow-x-auto">
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="text-left text-xs text-slate-500 border-b">
+                      <th class="py-2 pr-3 font-medium">模型</th>
+                      <th class="py-2 px-3 font-medium">上下文</th>
+                      <th class="py-2 px-3 font-medium">最大输出</th>
+                      <th class="py-2 px-3 font-medium">思考模式</th>
+                      <th class="py-2 pl-3 font-medium">备注</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="m in modelList" :key="m.id">
+                      <tr class="border-b border-slate-100 hover:bg-slate-50">
+                        <td class="py-2 pr-3">
+                          <div class="font-mono text-xs text-indigo-600" x-text="m.id"></div>
+                          <div class="text-xs text-slate-500" x-text="m.name"></div>
+                        </td>
+                        <td class="py-2 px-3">
+                          <span class="font-medium" x-text="fmtContext(m.context)"></span>
+                        </td>
+                        <td class="py-2 px-3 text-slate-600" x-text="fmtContext(m.max_output)"></td>
+                        <td class="py-2 px-3">
+                          <span class="inline-block px-2 py-0.5 rounded text-xs"
+                                :class="thinkingBadgeClass(m.thinking)"
+                                x-text="thinkingLabel(m.thinking)"></span>
+                        </td>
+                        <td class="py-2 pl-3 text-xs text-slate-500 max-w-xs" x-text="m.notes"></td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </template>
+
+          <!-- 调用参数速查 -->
+          <div class="mt-6 p-4 bg-slate-50 rounded-lg">
+            <h3 class="font-medium text-slate-700 mb-2">💡 如何开启思考模式（调用参数）</h3>
+            <div class="space-y-2 text-xs">
+              <template x-for="(modelList, provider) in modelsData.models" :key="'param-'+provider">
+                <template x-for="m in modelList" :key="m.id">
+                  <div x-show="m.thinking_param" class="flex gap-2">
+                    <code class="text-indigo-600 font-mono shrink-0" x-text="m.id + ':'"></code>
+                    <code class="text-slate-600 break-all" x-text="'{ ' + m.thinking_param + ' }'"></code>
+                  </div>
+                </template>
+              </template>
+            </div>
+            <p class="text-xs text-slate-400 mt-3">完整调用示例见仓库根目录 USAGE.md</p>
+          </div>
+        </div>
+        <button @click="tab='overview'" class="text-sm text-indigo-600 hover:underline">← 返回总览</button>
+      </div>
     </div>
   </template>
 
@@ -348,6 +457,10 @@ function app() {
       alert_balance_threshold: '', alert_used_threshold: '',
       saving: false, testing: false, msg: '', ok: false, _loaded: null,
     },
+    // 模型能力表
+    modelsData: { last_updated: '', models: {} },
+    // 动态模型查询
+    liveModels: { accountId: '', loading: false, result: null, error: '' },
 
     async init() {
       const r = await fetch('/api/session').then(r => r.json());
@@ -417,6 +530,22 @@ function app() {
         else { this.notify.msg = '❌ 发送失败：' + JSON.stringify(r.results); this.notify.ok = false; }
       } catch (e) { this.notify.msg = e.message; this.notify.ok = false; }
       finally { this.notify.testing = false; }
+    },
+    async loadModels() {
+      if (this.modelsData.last_updated) return;  // 只加载一次
+      try {
+        const r = await fetch('/api/models').then(r => r.json());
+        this.modelsData = r;
+      } catch (e) { console.error(e); }
+    },
+    async loadLiveModels() {
+      if (!this.liveModels.accountId) return;
+      this.liveModels.loading = true; this.liveModels.error = ''; this.liveModels.result = null;
+      try {
+        const r = await fetch(`/api/accounts/${this.liveModels.accountId}/models`).then(r => r.json());
+        this.liveModels.result = r;
+      } catch (e) { this.liveModels.error = e.message; }
+      finally { this.liveModels.loading = false; }
     },
     async createAccount() {
       this.formError = ''; this.creating = true;
@@ -541,6 +670,26 @@ function app() {
         if (h > 0) return `${h}小时${m}分`;
         return `${m}分钟`;
       } catch { return ''; }
+    },
+    // 模型能力表相关
+    providerDisplayName(p) {
+      return { deepseek:'DeepSeek', glm:'智谱 GLM', kimi:'Kimi (Moonshot)', minimax:'MiniMax' }[p] || p;
+    },
+    fmtContext(n) {
+      if (n === null || n === undefined) return '未公开';
+      if (n >= 1000000) return (n/1000000).toFixed(0) + 'M';
+      if (n >= 1000) return (n/1000).toFixed(0) + 'K';
+      return String(n);
+    },
+    thinkingLabel(t) {
+      return { supported:'支持思考', unsupported:'不支持', default_on:'默认开启' }[t] || t;
+    },
+    thinkingBadgeClass(t) {
+      return {
+        supported: 'bg-indigo-100 text-indigo-700',
+        unsupported: 'bg-slate-100 text-slate-400',
+        default_on: 'bg-emerald-100 text-emerald-700',
+      }[t] || 'bg-slate-100 text-slate-500';
     },
   };
 }

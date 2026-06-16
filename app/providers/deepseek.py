@@ -18,6 +18,14 @@ log = logging.getLogger(__name__)
 
 DISPLAY_NAME = "DeepSeek"
 ENDPOINT = "https://api.deepseek.com/user/balance"
+MODELS_ENDPOINT = "https://api.deepseek.com/models"
+
+
+async def list_models(api_key: str, **_config: Any) -> list:
+    """拉取 DeepSeek 当前可用模型列表（OpenAI 兼容 /models）。"""
+    from .base import fetch_models_openai_compat
+    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    return await fetch_models_openai_compat(MODELS_ENDPOINT, headers)
 
 
 async def query(api_key: str, **_config: Any) -> ProviderResult:

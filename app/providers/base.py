@@ -89,6 +89,41 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# ---- 动态模型查询 ----
+
+class LiveModel(BaseModel):
+    """从各家 /v1/models 实时拉取的模型条目。能力字段可能缺失（厂商不返回）。"""
+    id: str
+    created: int | None = None
+    owned_by: str | None = None
+    context_length: int | None = None      # 仅部分厂商（如 GLM）返回
+    description: str | None = None
+
+
+async def fetch_models_openai_compat(url: str, headers: dict[str, str]) -> list[LiveModel]:
+    """统一的 OpenAI 兼容 /v1/models 解析。
+
+    各家基本都遵循 {data: [{id, object, created, owned_by, ...}]} 格式。
+    个别家（如 GLM）在条目里额外带 context_length / description，一并提取。
+    """
+    raw = await http_get(url, headers)
+    data = raw.get("data") if isinstance(raw, dict) else raw
+    if not isinstance(data, list):
+        raise AdapterError(f"/v1/models 返回格式异常，缺 data 数组: {str(raw)[:200]}")
+    out: list[LiveModel] = []
+    for item in data:
+        if not isinstance(item, dict) or not item.get("id"):
+            continue
+        out.append(LiveModel(
+            id=str(item["id"]),
+            created=item.get("created"),
+            owned_by=item.get("owned_by"),
+            context_length=item.get("context_length") or item.get("max_context_length"),
+            description=item.get("description"),
+        ))
+    return out
+
+
 def _safe_result(
     provider: str,
     display_name: str,

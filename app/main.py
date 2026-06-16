@@ -191,6 +191,49 @@ def api_providers():
     return {"providers": registry.list_providers()}
 
 
+@app.get("/api/models")
+def api_models(provider: str | None = None):
+    """返回各家模型能力表（上下文、思考模式等）。静态数据，定期维护。"""
+    from . import models_meta
+    return models_meta.list_models(provider)
+
+
+@app.get("/api/accounts/{account_id}/models", dependencies=[Depends(require_login)])
+async def api_live_models(account_id: int):
+    """用某账户的 key 动态拉取该家当前可用模型列表，与静态能力表合并返回。"""
+    import json as _json
+    from . import models_meta
+    acc = db.get_account(account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="account 不存在")
+    try:
+        api_key = crypto.decrypt(acc["encrypted_api_key"])
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"key 解密失败: {e}")
+    cfg = _json.loads(acc["config_json"] or "{}")
+    try:
+        live = await registry.run_list_models(acc["provider"], api_key, **cfg)
+    except Exception as e:  # noqa: BLE001
+        log.warning("动态拉取模型失败 account=%s: %s", account_id, e)
+        return {
+            "account_id": account_id,
+            "provider": acc["provider"],
+            "display_name": acc["display_name"],
+            "models": models_meta.MODELS.get(acc["provider"], []),
+            "live_error": str(e),
+            "fetched_at": datetime.utcnow().isoformat(),
+        }
+    merged = models_meta.merge_live_with_static(acc["provider"], live)
+    return {
+        "account_id": account_id,
+        "provider": acc["provider"],
+        "display_name": acc["display_name"],
+        "models": merged,
+        "live_count": len(live),
+        "fetched_at": datetime.utcnow().isoformat(),
+    }
+
+
 # ---------------- 通知配置 ----------------
 
 # 通知相关的 settings key 白名单（避免前端乱写）
