@@ -25,3 +25,12 @@ env/
 
 # 日志
 *.log
+
+# 凭据/敏感本地文件
+cookie.txt
+*.cookies
+
+# 临时文件与诊断输出
+test_output.txt
+*.output.txt
+diag_output*
