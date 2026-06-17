@@ -2,433 +2,700 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Token 余额聚合</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <!-- 字体：Fraunces 衬线大标题 · Hanken Grotesk UI · Space Mono 等宽数字 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Hanken+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+  <script>
+    // Tailwind 扩展：字体族 + 极简金融配色
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            serif: ['Fraunces', 'Georgia', 'serif'],
+            sans: ['"Hanken Grotesk"', 'system-ui', 'sans-serif'],
+            mono: ['"Space Mono"', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            paper: '#FAFAF7',
+            card: '#FFFFFF',
+            ink: '#17181C',
+            sub: '#6B6B66',
+            line: '#E6E4DD',
+            emerald2: '#0F766E',
+            ember: '#B45309',
+            brick: '#B91C1C',
+          },
+          letterSpacing: { ledger: '0.14em' },
+        },
+      },
+    };
+  </script>
+
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
     [x-cloak] { display: none !important; }
+
+    body {
+      font-family: 'Hanken Grotesk', system-ui, sans-serif;
+      background-color: #FAFAF7;
+      /* 纸感纹理：极淡的点阵噪点，几乎看不见，近看有质感 */
+      background-image:
+        radial-gradient(circle at 1px 1px, rgba(23,24,28,0.018) 1px, transparent 0);
+      background-size: 22px 22px;
+      color: #17181C;
+    }
+
+    /* 等宽数字，财务报表精度感 */
+    .tabular { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum'; }
+
+    /* 编号索引（账本行项目 01/02/03） */
+    .index-no { font-family: 'Space Mono', monospace; font-variant-numeric: tabular-nums; }
+
+    /* hairline 分隔线 */
+    .hairline { border-color: #E6E4DD; }
+    .hairline-b { border-bottom: 1px solid #E6E4DD; }
+    .hairline-t { border-top: 1px solid #E6E4DD; }
+    .hairline-l { border-left: 1px solid #E6E4DD; }
+
+    /* 下划线输入框 */
+    .field-line {
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid #C9C7BF;
+      border-radius: 0;
+      padding: 0.5rem 0;
+      transition: border-color .2s;
+    }
+    .field-line:focus {
+      outline: none;
+      border-bottom-color: #0F766E;
+    }
+
+    /* 载入错峰淡入（极简风：克制，仅一次） */
+    @keyframes ledgerIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .stagger > * { animation: ledgerIn .5s cubic-bezier(.2,.7,.2,1) both; }
+    .stagger > *:nth-child(1){animation-delay:.04s}
+    .stagger > *:nth-child(2){animation-delay:.10s}
+    .stagger > *:nth-child(3){animation-delay:.16s}
+    .stagger > *:nth-child(4){animation-delay:.22s}
+    .stagger > *:nth-child(5){animation-delay:.28s}
+    .stagger > *:nth-child(6){animation-delay:.34s}
+    .stagger > *:nth-child(7){animation-delay:.40s}
+    .stagger > *:nth-child(8){animation-delay:.46s}
+
+    /* 行项目 hover 微抬升 */
+    .row-item { transition: background-color .15s ease, transform .15s ease; }
+    .row-item:hover { background-color: rgba(15,118,110,0.035); }
+
+    /* 导航下划线滑入（PC） */
+    .nav-link { position: relative; }
+    .nav-link::after {
+      content: ''; position: absolute; left: 0; right: 0; bottom: -6px; height: 1.5px;
+      background: #0F766E; transform: scaleX(0); transform-origin: left;
+      transition: transform .25s cubic-bezier(.2,.7,.2,1);
+    }
+    .nav-link.active::after { transform: scaleX(1); }
+
+    /* 自定义滚动条（PC） */
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: #D8D6CD; border-radius: 0; }
+    ::-webkit-scrollbar-track { background: transparent; }
+
+    /* 手机底部 Tab 安全区 */
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+
+    /* 隐藏 number input 旋钮 */
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   </style>
 </head>
-<body class="bg-slate-50 min-h-screen text-slate-800" x-data="app()" x-init="init()">
+<body class="min-h-screen text-ink" x-data="app()" x-init="init()">
 
-  <!-- 登录页 -->
+  <!-- ============ 登录页 ============ -->
   <template x-if="!loggedIn">
-    <div class="min-h-screen flex items-center justify-center px-4">
-      <div class="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm">
-        <h1 class="text-xl font-bold mb-1">🔑 Token 余额聚合</h1>
-        <p class="text-sm text-slate-500 mb-6">请输入管理员密码</p>
-        <form @submit.prevent="login()" class="space-y-4">
-          <input type="password" x-model="loginPassword" placeholder="密码"
-                 class="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none">
-          <p x-show="loginError" class="text-sm text-red-500" x-text="loginError"></p>
+    <div class="min-h-screen flex items-center justify-center px-5">
+      <div class="w-full max-w-sm stagger">
+        <div class="mb-10">
+          <p class="text-[11px] uppercase tracking-ledger text-sub mb-2">Console</p>
+          <h1 class="font-serif text-[2.1rem] leading-none font-light">Token<br>余额聚合</h1>
+        </div>
+        <form @submit.prevent="login()" class="space-y-7">
+          <div>
+            <label class="block text-[11px] uppercase tracking-ledger text-sub mb-1">管理员密码</label>
+            <input type="password" x-model="loginPassword" placeholder="••••••••"
+                   class="field-line w-full text-base tabular" autocomplete="current-password">
+          </div>
+          <p x-show="loginError" class="text-xs text-brick -mt-3" x-text="loginError"></p>
           <button type="submit" :disabled="loginLoading"
-                  class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg transition disabled:opacity-50">
+                  class="group w-full bg-ink text-paper text-sm tracking-ledger uppercase py-3.5
+                         hover:bg-emerald2 transition-colors duration-200 disabled:opacity-40
+                         flex items-center justify-center gap-2">
             <span x-show="!loginLoading">登录</span>
-            <span x-show="loginLoading">登录中…</span>
+            <span x-show="loginLoading" class="tabular">验证中…</span>
+            <span x-show="!loginLoading" class="transition-transform duration-200 group-hover:translate-x-1">→</span>
           </button>
         </form>
+        <p class="text-[11px] text-sub mt-10 font-mono">— local encrypted · single user —</p>
       </div>
     </div>
   </template>
 
-  <!-- 主面板 -->
+  <!-- ============ 主面板 ============ -->
   <template x-if="loggedIn">
-    <div class="max-w-6xl mx-auto px-4 py-8">
+    <div>
 
-      <!-- 顶栏 -->
-      <header class="flex items-center justify-between mb-8">
-        <div>
-          <h1 class="text-2xl font-bold">📊 Token 余额聚合</h1>
-          <p class="text-sm text-slate-500 mt-1" x-show="lastRefresh">
-            上次刷新：<span x-text="lastRefresh"></span>
-          </p>
-        </div>
-        <div class="flex items-center gap-2">
-          <button @click="refresh()" :disabled="refreshing"
-                  class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded-lg disabled:opacity-50">
-            <span x-show="!refreshing">🔄 刷新</span>
-            <span x-show="refreshing">刷新中…</span>
-          </button>
-          <button @click="tab='settings'; loadProviders()"
-                  :class="tab==='settings' ? 'bg-slate-800 text-white' : 'bg-white border'"
-                  class="text-sm font-medium px-4 py-2 rounded-lg">⚙️ 设置</button>
-          <button @click="tab='trend'; loadTrend()"
-                  :class="tab==='trend' ? 'bg-slate-800 text-white' : 'bg-white border'"
-                  class="text-sm font-medium px-4 py-2 rounded-lg">📈 趋势</button>
-          <button @click="tab='models'; loadModels()"
-                  :class="tab==='models' ? 'bg-slate-800 text-white' : 'bg-white border'"
-                  class="text-sm font-medium px-4 py-2 rounded-lg">🧠 模型</button>
-          <button @click="logout()" class="text-sm text-slate-500 hover:text-slate-800 px-3 py-2">退出</button>
+      <!-- ===== 顶栏（sticky）===== -->
+      <header class="sticky top-0 z-30 bg-paper/85 backdrop-blur-md hairline-b">
+        <div class="max-w-6xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between">
+          <!-- 品牌 -->
+          <div class="flex items-baseline gap-3">
+            <h1 class="font-serif text-lg md:text-xl font-medium leading-none">Token 余额聚合</h1>
+            <span class="hidden md:inline text-[11px] text-sub tabular" x-show="lastRefresh">
+              <span class="text-sub/60">last</span> <span x-text="lastRefresh"></span>
+            </span>
+          </div>
+
+          <!-- 右侧操作 -->
+          <div class="flex items-center gap-1 md:gap-2">
+            <!-- 刷新 -->
+            <button @click="refresh()" :disabled="refreshing"
+                    class="flex items-center gap-2 text-sm px-3 py-2 rounded-sm
+                           border border-line hover:border-emerald2 hover:text-emerald2
+                           transition-colors duration-150 disabled:opacity-40">
+              <svg x-show="!refreshing" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              <svg x-show="refreshing" class="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+              <span class="hidden sm:inline" x-text="refreshing ? '刷新中' : '刷新'"></span>
+            </button>
+
+            <!-- PC 文字导航 -->
+            <nav class="hidden md:flex items-center gap-6 ml-3">
+              <button @click="tab='overview'" class="nav-link text-sm pb-1 transition-colors"
+                      :class="tab==='overview' ? 'active text-emerald2' : 'text-sub hover:text-ink'">总览</button>
+              <button @click="tab='trend'; loadTrend()" class="nav-link text-sm pb-1 transition-colors"
+                      :class="tab==='trend' ? 'active text-emerald2' : 'text-sub hover:text-ink'">趋势</button>
+              <button @click="tab='models'; loadModels()" class="nav-link text-sm pb-1 transition-colors"
+                      :class="tab==='models' ? 'active text-emerald2' : 'text-sub hover:text-ink'">模型</button>
+              <button @click="tab='settings'; loadProviders()" class="nav-link text-sm pb-1 transition-colors"
+                      :class="tab==='settings' ? 'active text-emerald2' : 'text-sub hover:text-ink'">设置</button>
+            </nav>
+
+            <!-- 退出（PC） -->
+            <button @click="logout()" class="hidden md:flex items-center gap-1.5 text-sm text-sub hover:text-brick transition-colors px-2 py-2 ml-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+              退出
+            </button>
+          </div>
         </div>
       </header>
 
-      <!-- 总览 -->
-      <div x-show="tab==='overview'">
-        <!-- 余额合计 -->
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mb-6 flex items-center gap-6">
-          <div>
-            <p class="text-xs text-slate-500 uppercase tracking-wide">合计余额</p>
-            <p class="text-3xl font-bold text-slate-900 mt-1" x-text="totalBalanceText"></p>
-          </div>
-          <div class="h-10 w-px bg-slate-200"></div>
-          <div>
-            <p class="text-xs text-slate-500 uppercase tracking-wide">监控账户</p>
-            <p class="text-3xl font-bold text-slate-900 mt-1" x-text="accounts.length"></p>
-          </div>
-          <div class="h-10 w-px bg-slate-200"></div>
-          <div>
-            <p class="text-xs text-slate-500 uppercase tracking-wide">异常</p>
-            <p class="text-3xl font-bold mt-1" :class="errorCount ? 'text-red-600' : 'text-emerald-600'" x-text="errorCount"></p>
-          </div>
-        </div>
+      <!-- ===== 主内容 ===== -->
+      <main class="max-w-6xl mx-auto px-5 md:px-8 py-8 md:py-12 pb-28 md:pb-12">
 
-        <!-- 卡片网格 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <template x-for="acc in accounts" :key="acc.id">
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5"
-                 :class="acc.latest?.raw_error ? 'border-red-300 bg-red-50' : ''">
+        <!-- ============ 总览 ============ -->
+        <div x-show="tab==='overview'">
 
-              <div class="flex items-start justify-between mb-3">
-                <div>
-                  <p class="font-semibold text-slate-900" x-text="acc.display_name"></p>
-                  <p class="text-xs text-slate-400 mt-0.5" x-text="providerLabel(acc.provider)"></p>
-                </div>
-                <span class="text-xs px-2 py-0.5 rounded-full"
-                      :class="acc.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'"
-                      x-text="acc.enabled ? '启用' : '停用'"></span>
+          <!-- Hero 统计带 -->
+          <section class="mb-12 md:mb-14 stagger">
+            <p class="text-[11px] uppercase tracking-ledger text-sub mb-6">概览 / Overview</p>
+            <!-- 三项统计 -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-0 md:divide-x divide-line">
+              <!-- 合计余额 -->
+              <div class="md:pr-8 pb-6 md:pb-0 hairline-b md:border-b-0">
+                <p class="text-[11px] uppercase tracking-ledger text-sub mb-2">合计余额</p>
+                <p class="font-serif text-4xl md:text-5xl font-light tabular leading-none" x-text="totalBalanceText"></p>
               </div>
-
-              <!-- 有错误 -->
-              <template x-if="acc.latest?.raw_error">
-                <div class="text-sm text-red-600 py-4">
-                  ⚠️ <span x-text="acc.latest.raw_error"></span>
-                </div>
-              </template>
-
-              <!-- 还没数据 -->
-              <template x-if="!acc.latest">
-                <div class="text-sm text-slate-400 py-6 text-center">点击「刷新」获取数据</div>
-              </template>
-
-              <!-- 余额型 -->
-              <template x-if="acc.latest && !acc.latest.raw_error && acc.latest.type==='balance'">
-                <div>
-                  <p class="text-3xl font-bold text-slate-900">
-                    <span x-text="currencySymbol(acc.latest.currency)"></span><span x-text="formatBalance(acc.latest.balance)"></span>
-                  </p>
-                  <p class="text-xs text-slate-400 mt-1" x-text="acc.latest.currency || ''"></p>
-                </div>
-              </template>
-
-              <!-- 窗口型（阶段2 接入后会有 tiers） -->
-              <template x-if="acc.latest && !acc.latest.raw_error && acc.latest.type==='window' && acc.latest.tiers">
-                <div class="space-y-3">
-                  <!-- 套餐等级 -->
-                  <div x-show="acc.latest.plan_level" class="text-xs text-slate-400">
-                    套餐：<span class="font-medium text-slate-600 uppercase" x-text="acc.latest.plan_level"></span>
-                  </div>
-                  <template x-for="(t, i) in acc.latest.tiers" :key="i">
-                    <div>
-                      <div class="flex justify-between text-xs text-slate-500 mb-1">
-                        <span x-text="tierLabel(t.type)"></span>
-                        <span><span x-text="t.used_percent.toFixed(1)"></span>% 已用</span>
-                      </div>
-                      <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div class="h-full rounded-full transition-all"
-                             :class="t.used_percent >= 90 ? 'bg-red-500' : (t.used_percent >= 70 ? 'bg-amber-500' : 'bg-emerald-500')"
-                             :style="`width: ${Math.min(100, t.used_percent)}%`"></div>
-                      </div>
-                      <p class="text-xs text-slate-400 mt-1" x-show="t.resets_at">
-                        <span x-text="countdown(t.resets_at)"></span>后重置
-                      </p>
-                    </div>
-                  </template>
-                </div>
-              </template>
+              <!-- 监控账户 -->
+              <div class="md:px-8 py-6 md:py-0 hairline-b md:border-b-0">
+                <p class="text-[11px] uppercase tracking-ledger text-sub mb-2">监控账户</p>
+                <p class="font-serif text-4xl md:text-5xl font-light tabular leading-none" x-text="accounts.length"></p>
+              </div>
+              <!-- 异常 -->
+              <div class="md:pl-8 pt-6 md:pt-0">
+                <p class="text-[11px] uppercase tracking-ledger text-sub mb-2">异常</p>
+                <p class="font-serif text-4xl md:text-5xl font-light tabular leading-none"
+                   :class="errorCount ? 'text-brick' : 'text-emerald2'" x-text="errorCount"></p>
+              </div>
             </div>
-          </template>
+          </section>
 
-          <!-- 空状态 -->
-          <div x-show="accounts.length === 0" class="col-span-full bg-white rounded-2xl border border-dashed border-slate-300 p-12 text-center">
-            <p class="text-slate-500 mb-4">还没有添加任何账户</p>
-            <button @click="tab='settings'; loadProviders()" class="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm hover:bg-indigo-700">去添加 →</button>
+          <!-- 账户行项目标题 -->
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-serif text-xl md:text-2xl font-medium">账户</h2>
+            <p class="text-[11px] uppercase tracking-ledger text-sub tabular" x-show="accounts.length">共 <span x-text="accounts.length"></span> 项</p>
           </div>
-        </div>
-      </div>
 
-      <!-- 设置页 -->
-      <div x-show="tab==='settings'" class="space-y-6">
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <h2 class="font-semibold text-lg mb-4">➕ 添加账户</h2>
-          <form @submit.prevent="createAccount()" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label class="block text-sm text-slate-600 mb-1">服务商</label>
-              <select x-model="form.provider" class="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
-                <template x-for="p in providers" :key="p.provider">
-                  <option :value="p.provider" x-text="p.display_name"></option>
-                </template>
-              </select>
-            </div>
-            <div>
-              <label class="block text-sm text-slate-600 mb-1">显示名</label>
-              <input x-model="form.display_name" placeholder="如：我的 DeepSeek" class="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
-            </div>
-            <div class="md:col-span-2">
-              <label class="block text-sm text-slate-600 mb-1">API Key</label>
-              <input type="password" x-model="form.api_key" placeholder="sk-..." class="w-full px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
-            </div>
-            <div class="md:col-span-2 flex items-center gap-3">
-              <button type="submit" :disabled="creating"
-                      class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2 rounded-lg disabled:opacity-50">
-                <span x-show="!creating">添加</span><span x-show="creating">添加中…</span>
-              </button>
-              <p x-show="formError" class="text-sm text-red-500" x-text="formError"></p>
-            </div>
-          </form>
-        </div>
+          <!-- 账户列表（编号行项目） -->
+          <div class="hairline-t hairline-b stagger" x-show="accounts.length">
+            <template x-for="(acc, idx) in accounts" :key="acc.id">
+              <div class="row-item hairline-b last:border-b-0 px-1 md:px-2"
+                   :class="acc.latest?.raw_error ? 'border-l-2 border-l-brick' : ''">
 
-        <!-- 已有账户列表 -->
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <h2 class="font-semibold text-lg mb-4">📋 已有账户</h2>
-          <div class="space-y-2">
-            <template x-for="acc in accounts" :key="acc.id">
-              <div class="flex items-center justify-between border border-slate-200 rounded-lg px-4 py-3">
-                <div>
-                  <p class="font-medium" x-text="acc.display_name"></p>
-                  <p class="text-xs text-slate-400" x-text="providerLabel(acc.provider)"></p>
-                </div>
-                <div class="flex items-center gap-2">
-                  <button @click="toggleEnabled(acc)"
-                          class="text-xs px-3 py-1 rounded border"
-                          :class="acc.enabled ? 'border-emerald-300 text-emerald-700 bg-emerald-50' : 'border-slate-300 text-slate-500'"
-                          x-text="acc.enabled ? '启用中' : '已停用'"></button>
-                  <button @click="deleteAccount(acc)" class="text-xs px-3 py-1 rounded border border-red-300 text-red-600 hover:bg-red-50">删除</button>
+                <div class="py-5 md:py-6 flex items-start gap-4 md:gap-6">
+                  <!-- 编号 -->
+                  <span class="index-no text-[11px] text-sub/70 pt-1 w-6 shrink-0"
+                        x-text="String(idx+1).padStart(2,'0')"></span>
+
+                  <!-- 左：名称 + provider -->
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2.5 flex-wrap">
+                      <p class="font-medium text-base md:text-[17px] truncate" x-text="acc.display_name"></p>
+                      <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                            :class="acc.enabled ? 'bg-emerald2' : 'bg-sub/40'"></span>
+                      <span class="text-[10px] uppercase tracking-ledger"
+                            :class="acc.enabled ? 'text-emerald2' : 'text-sub/60'"
+                            x-text="acc.enabled ? '启用' : '停用'"></span>
+                    </div>
+                    <p class="text-xs text-sub mt-1" x-text="providerLabel(acc.provider)"></p>
+
+                    <!-- 窗口型进度条 -->
+                    <template x-if="acc.latest && !acc.latest.raw_error && acc.latest.type==='window' && acc.latest.tiers">
+                      <div class="mt-4 space-y-2.5 max-w-md">
+                        <p x-show="acc.latest.plan_level" class="text-[11px] text-sub">
+                          套餐 <span class="font-mono text-ink/80 uppercase" x-text="acc.latest.plan_level"></span>
+                        </p>
+                        <template x-for="(t, i) in acc.latest.tiers" :key="i">
+                          <div>
+                            <div class="flex justify-between items-baseline text-[11px] text-sub mb-1">
+                              <span x-text="tierLabel(t.type)"></span>
+                              <span class="tabular font-medium"
+                                    :class="t.used_percent >= 90 ? 'text-brick' : (t.used_percent >= 70 ? 'text-ember' : 'text-emerald2')">
+                                <span x-text="t.used_percent.toFixed(1)"></span>%
+                              </span>
+                            </div>
+                            <div class="h-[3px] bg-line">
+                              <div class="h-full transition-all duration-500"
+                                   :class="t.used_percent >= 90 ? 'bg-brick' : (t.used_percent >= 70 ? 'bg-ember' : 'bg-emerald2')"
+                                   :style="`width: ${Math.min(100, t.used_percent)}%`"></div>
+                            </div>
+                            <p class="text-[10px] text-sub/70 mt-1 tabular" x-show="t.resets_at">
+                              <span x-text="countdown(t.resets_at)"></span> 后重置
+                            </p>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+
+                    <!-- 错误 -->
+                    <template x-if="acc.latest?.raw_error">
+                      <p class="text-sm text-brick mt-3 flex items-start gap-1.5">
+                        <svg class="shrink-0 mt-0.5" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                        <span x-text="acc.latest.raw_error"></span>
+                      </p>
+                    </template>
+
+                    <!-- 无数据 -->
+                    <template x-if="!acc.latest">
+                      <p class="text-xs text-sub/60 mt-3 italic">待刷新 — 点击右上「刷新」获取</p>
+                    </template>
+                  </div>
+
+                  <!-- 右：余额型金额 / 数值 -->
+                  <div class="text-right shrink-0">
+                    <template x-if="acc.latest && !acc.latest.raw_error && acc.latest.type==='balance'">
+                      <div>
+                        <p class="font-serif text-2xl md:text-3xl font-light tabular leading-none">
+                          <span class="text-sub text-lg align-top" x-text="currencySymbol(acc.latest.currency)"></span><span x-text="formatBalance(acc.latest.balance)"></span>
+                        </p>
+                        <p class="text-[10px] uppercase tracking-ledger text-sub/70 mt-2" x-text="acc.latest.currency || ''"></p>
+                      </div>
+                    </template>
+                    <!-- 窗口型在右侧显示总体状态点（手机端简化） -->
+                    <template x-if="acc.latest && !acc.latest.raw_error && acc.latest.type==='window' && acc.latest.tiers">
+                      <div class="hidden md:block pt-1">
+                        <p class="text-[10px] uppercase tracking-ledger text-sub/60">窗口型</p>
+                      </div>
+                    </template>
+                  </div>
                 </div>
               </div>
             </template>
-            <p x-show="accounts.length===0" class="text-sm text-slate-400 text-center py-4">暂无账户</p>
-          </div>
-        </div>
-
-        <!-- 通知配置 -->
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <h2 class="font-semibold text-lg mb-4">🔔 通知配置</h2>
-          <p class="text-sm text-slate-500 mb-4">配置告警和每日报告的发送渠道。只填你用的那个就行，其它留空。</p>
-
-          <!-- 告警阈值 -->
-          <div class="mb-6 p-4 bg-slate-50 rounded-lg">
-            <p class="text-sm font-medium text-slate-700 mb-3">默认告警阈值（每账户可在账户配置里单独覆盖）</p>
-            <div class="grid grid-cols-2 gap-4">
-              <div>
-                <label class="block text-xs text-slate-500 mb-1">余额告警（元）</label>
-                <input type="number" x-model="notify.alert_balance_threshold" placeholder="10"
-                       class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded outline-none focus:ring-2 focus:ring-indigo-500">
-              </div>
-              <div>
-                <label class="block text-xs text-slate-500 mb-1">窗口已用告警（%）</label>
-                <input type="number" x-model="notify.alert_used_threshold" placeholder="90"
-                       class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded outline-none focus:ring-2 focus:ring-indigo-500">
-              </div>
-            </div>
           </div>
 
-          <!-- Server 酱 -->
-          <div class="mb-4 p-4 border border-slate-200 rounded-lg">
-            <p class="text-sm font-medium text-slate-700 mb-2">💬 Server 酱（微信推送）<span class="text-xs text-slate-400 ml-2">推荐，去 sct.ftqq.com 申请</span></p>
-            <input type="password" x-model="notify.notify_serverchan_key" :placeholder="notify._loaded?.notify_serverchan_key?.masked || 'SCTxxxx'"
-                   class="w-full px-3 py-1.5 text-sm border border-slate-300 rounded font-mono outline-none focus:ring-2 focus:ring-indigo-500">
-          </div>
-
-          <!-- 折叠：Telegram / 邮件 -->
-          <details class="mb-4">
-            <summary class="text-sm text-slate-500 cursor-pointer hover:text-slate-700">展开 Telegram / 邮件配置（可选）</summary>
-            <div class="mt-3 space-y-3">
-              <div class="p-4 border border-slate-200 rounded-lg">
-                <p class="text-sm font-medium text-slate-700 mb-2">✈️ Telegram Bot</p>
-                <div class="grid grid-cols-2 gap-3">
-                  <input type="password" x-model="notify.notify_telegram_bot_token" placeholder="Bot Token"
-                         class="px-3 py-1.5 text-sm border border-slate-300 rounded font-mono outline-none focus:ring-2 focus:ring-indigo-500">
-                  <input x-model="notify.notify_telegram_chat_id" placeholder="Chat ID"
-                         class="px-3 py-1.5 text-sm border border-slate-300 rounded outline-none focus:ring-2 focus:ring-indigo-500">
-                </div>
-              </div>
-              <div class="p-4 border border-slate-200 rounded-lg">
-                <p class="text-sm font-medium text-slate-700 mb-2">📧 邮件（SMTP）</p>
-                <div class="grid grid-cols-3 gap-3">
-                  <input x-model="notify.notify_smtp_host" placeholder="SMTP 主机"
-                         class="px-3 py-1.5 text-sm border border-slate-300 rounded outline-none focus:ring-2 focus:ring-indigo-500">
-                  <input x-model="notify.notify_smtp_port" placeholder="端口(465)"
-                         class="px-3 py-1.5 text-sm border border-slate-300 rounded outline-none focus:ring-2 focus:ring-indigo-500">
-                  <input x-model="notify.notify_smtp_user" placeholder="发件邮箱"
-                         class="px-3 py-1.5 text-sm border border-slate-300 rounded outline-none focus:ring-2 focus:ring-indigo-500">
-                  <input type="password" x-model="notify.notify_smtp_password" placeholder="授权码"
-                         class="px-3 py-1.5 text-sm border border-slate-300 rounded outline-none focus:ring-2 focus:ring-indigo-500">
-                  <input x-model="notify.notify_smtp_to" placeholder="收件邮箱（默认同发件）"
-                         class="col-span-2 px-3 py-1.5 text-sm border border-slate-300 rounded outline-none focus:ring-2 focus:ring-indigo-500">
-                </div>
-              </div>
-            </div>
-          </details>
-
-          <div class="flex items-center gap-3">
-            <button @click="saveNotify()" :disabled="notify.saving"
-                    class="bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-              <span x-show="!notify.saving">💾 保存配置</span><span x-show="notify.saving">保存中…</span>
+          <!-- 空状态 -->
+          <div x-show="accounts.length === 0" class="py-20 text-center">
+            <p class="font-serif text-2xl text-sub mb-2">尚无账户</p>
+            <p class="text-sm text-sub/70 mb-6">添加第一家服务商即可开始监控</p>
+            <button @click="tab='settings'; loadProviders()"
+                    class="inline-flex items-center gap-2 text-sm text-emerald2 border-b border-emerald2 pb-0.5 hover:gap-3 transition-all">
+              去添加
+              <span>→</span>
             </button>
-            <button @click="testNotify()" :disabled="notify.testing"
-                    class="border border-slate-300 text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-50 disabled:opacity-50">
-              <span x-show="!notify.testing">🔔 测试通知</span><span x-show="notify.testing">发送中…</span>
-            </button>
-            <span x-show="notify.msg" class="text-sm" :class="notify.ok ? 'text-emerald-600' : 'text-red-500'" x-text="notify.msg"></span>
           </div>
         </div>
 
-
-        <button @click="tab='overview'" class="text-sm text-indigo-600 hover:underline">← 返回总览</button>
-      </div>
-
-      <!-- 趋势页 -->
-      <div x-show="tab==='trend'" class="space-y-4">
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <div class="flex flex-wrap items-end gap-4 mb-4">
-            <div>
-              <label class="block text-sm text-slate-600 mb-1">账户</label>
-              <select x-model="trend.accountId" @change="loadTrend()"
-                      class="px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="">— 选择账户 —</option>
-                <template x-for="a in accounts" :key="a.id">
-                  <option :value="a.id" x-text="a.display_name + ' (' + providerLabel(a.provider) + ')'"></option>
-                </template>
-              </select>
-            </div>
-            <div>
-              <label class="block text-sm text-slate-600 mb-1">范围</label>
-              <select x-model="trend.days" @change="loadTrend()"
-                      class="px-3 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500">
-                <option value="1">最近 1 天</option>
-                <option value="7">最近 7 天</option>
-                <option value="30">最近 30 天</option>
-                <option value="90">最近 90 天</option>
-              </select>
-            </div>
-            <button @click="loadTrend()" class="bg-indigo-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-indigo-700">刷新图表</button>
-          </div>
-          <p x-show="trend.error" class="text-sm text-red-500" x-text="trend.error"></p>
-          <p x-show="!trend.accountId" class="text-sm text-slate-400 py-8 text-center">请选择一个账户查看趋势</p>
-          <p x-show="trend.accountId && trend.points.length===0 && !trend.loading" class="text-sm text-slate-400 py-8 text-center">暂无历史数据（多刷新几次或等定时任务跑一会儿）</p>
-          <div x-show="trend.accountId" x-ref="chart" style="width:100%;height:380px;"></div>
-        </div>
-        <button @click="tab='overview'" class="text-sm text-indigo-600 hover:underline">← 返回总览</button>
-      </div>
-
-      <!-- 模型能力页 -->
-      <div x-show="tab==='models'" class="space-y-4">
-        <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-          <div class="flex items-center justify-between mb-2">
-            <h2 class="font-semibold text-lg">🧠 各家模型能力</h2>
-            <span class="text-xs text-slate-400" x-show="modelsData.last_updated">数据更新于 <span x-text="modelsData.last_updated"></span></span>
-          </div>
-          <p class="text-sm text-slate-500 mb-4">
-            上下文长度、思考模式、最大输出的对比。<span class="text-amber-600">⚠️ 模型能力随厂商更新而变化，此表需定期人工核实。</span>
-          </p>
-
-          <!-- 动态查询 -->
-          <div class="mb-6 p-4 bg-indigo-50 rounded-lg border border-indigo-100">
-            <p class="text-sm font-medium text-indigo-900 mb-2">🔄 动态查询当前可用模型</p>
-            <p class="text-xs text-indigo-700 mb-3">用某账户的 key 实时拉取该家 <code>/v1/models</code>，能看到厂商新加了哪些模型。能力详情（思考/上下文）仍由静态表补充，拿不到的显示"未知"。</p>
-            <div class="flex flex-wrap items-center gap-2">
-              <select x-model="liveModels.accountId"
-                      class="px-3 py-1.5 text-sm border border-indigo-200 rounded outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
-                <option value="">— 选择账户 —</option>
-                <template x-for="a in accounts" :key="a.id">
-                  <option :value="a.id" x-text="a.display_name + ' (' + providerDisplayName(a.provider) + ')'"></option>
-                </template>
-              </select>
-              <button @click="loadLiveModels()" :disabled="!liveModels.accountId || liveModels.loading"
-                      class="bg-indigo-600 text-white text-sm px-4 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50">
-                <span x-show="!liveModels.loading">查询实时模型</span><span x-show="liveModels.loading">查询中…</span>
-              </button>
-              <span x-show="liveModels.error" class="text-sm text-red-500" x-text="liveModels.error"></span>
-            </div>
-            <div x-show="liveModels.result" class="mt-3">
-              <p class="text-xs text-slate-500 mb-1">
-                <span x-text="liveModels.result?.display_name"></span>：
-                <span x-show="liveModels.result?.live_count !== undefined">实时 <span class="font-medium" x-text="liveModels.result?.live_count"></span> 个模型</span>
-                <span x-show="liveModels.result?.live_error" class="text-amber-600">（实时拉取失败，显示静态：<span x-text="liveModels.result?.live_error"></span>）</span>
-              </p>
-              <div class="flex flex-wrap gap-1.5">
-                <template x-for="m in (liveModels.result?.models || [])" :key="m.id">
-                  <span class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-white border"
-                        :class="m.thinking==='unknown' ? 'border-amber-200 text-amber-700' : 'border-slate-200 text-slate-600'">
-                    <code class="font-mono" x-text="m.id"></code>
-                    <span x-show="m.context" class="text-slate-400">· <span x-text="fmtContext(m.context)"></span></span>
-                    <span x-show="m.thinking==='unknown'" class="text-amber-500">⚠️未知</span>
-                  </span>
-                </template>
+        <!-- ============ 设置 ============ -->
+        <div x-show="tab==='settings'" class="space-y-14">
+          <!-- 添加账户 -->
+          <section>
+            <p class="text-[11px] uppercase tracking-ledger text-sub mb-2">01 / 添加账户</p>
+            <h2 class="font-serif text-xl md:text-2xl font-medium mb-6">新增监控</h2>
+            <form @submit.prevent="createAccount()" class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 max-w-3xl">
+              <div>
+                <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">服务商</label>
+                <select x-model="form.provider" class="field-line w-full bg-transparent">
+                  <template x-for="p in providers" :key="p.provider">
+                    <option :value="p.provider" x-text="p.display_name"></option>
+                  </template>
+                </select>
               </div>
-            </div>
-          </div>
-
-          <template x-for="(modelList, provider) in modelsData.models" :key="provider">
-            <div class="mb-6">
-              <h3 class="font-medium text-slate-700 mb-2 pb-1 border-b" x-text="providerDisplayName(provider)"></h3>
-              <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                  <thead>
-                    <tr class="text-left text-xs text-slate-500 border-b">
-                      <th class="py-2 pr-3 font-medium">模型</th>
-                      <th class="py-2 px-3 font-medium">上下文</th>
-                      <th class="py-2 px-3 font-medium">最大输出</th>
-                      <th class="py-2 px-3 font-medium">思考模式</th>
-                      <th class="py-2 pl-3 font-medium">备注</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <template x-for="m in modelList" :key="m.id">
-                      <tr class="border-b border-slate-100 hover:bg-slate-50">
-                        <td class="py-2 pr-3">
-                          <div class="font-mono text-xs text-indigo-600" x-text="m.id"></div>
-                          <div class="text-xs text-slate-500" x-text="m.name"></div>
-                        </td>
-                        <td class="py-2 px-3">
-                          <span class="font-medium" x-text="fmtContext(m.context)"></span>
-                        </td>
-                        <td class="py-2 px-3 text-slate-600" x-text="fmtContext(m.max_output)"></td>
-                        <td class="py-2 px-3">
-                          <span class="inline-block px-2 py-0.5 rounded text-xs"
-                                :class="thinkingBadgeClass(m.thinking)"
-                                x-text="thinkingLabel(m.thinking)"></span>
-                        </td>
-                        <td class="py-2 pl-3 text-xs text-slate-500 max-w-xs" x-text="m.notes"></td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
+              <div>
+                <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">显示名</label>
+                <input x-model="form.display_name" placeholder="如：我的 DeepSeek" class="field-line w-full">
               </div>
-            </div>
-          </template>
+              <div class="md:col-span-2">
+                <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">API Key</label>
+                <input type="password" x-model="form.api_key" placeholder="sk-…" class="field-line w-full font-mono text-sm">
+              </div>
+              <div class="md:col-span-2 flex items-center gap-4 pt-2">
+                <button type="submit" :disabled="creating"
+                        class="bg-ink text-paper text-sm tracking-ledger uppercase px-6 py-3 hover:bg-emerald2 transition-colors disabled:opacity-40">
+                  <span x-show="!creating">添加</span>
+                  <span x-show="creating" class="tabular">添加中…</span>
+                </button>
+                <p x-show="formError" class="text-sm text-brick" x-text="formError"></p>
+              </div>
+            </form>
+          </section>
 
-          <!-- 调用参数速查 -->
-          <div class="mt-6 p-4 bg-slate-50 rounded-lg">
-            <h3 class="font-medium text-slate-700 mb-2">💡 如何开启思考模式（调用参数）</h3>
-            <div class="space-y-2 text-xs">
-              <template x-for="(modelList, provider) in modelsData.models" :key="'param-'+provider">
-                <template x-for="m in modelList" :key="m.id">
-                  <div x-show="m.thinking_param" class="flex gap-2">
-                    <code class="text-indigo-600 font-mono shrink-0" x-text="m.id + ':'"></code>
-                    <code class="text-slate-600 break-all" x-text="'{ ' + m.thinking_param + ' }'"></code>
+          <!-- 已有账户 -->
+          <section>
+            <p class="text-[11px] uppercase tracking-ledger text-sub mb-2">02 / 已有账户</p>
+            <h2 class="font-serif text-xl md:text-2xl font-medium mb-6">账户清单</h2>
+            <div class="hairline-t hairline-b">
+              <template x-for="(acc, idx) in accounts" :key="acc.id">
+                <div class="row-item hairline-b last:border-b-0 py-4 px-1 md:px-2 flex items-center gap-4">
+                  <span class="index-no text-[11px] text-sub/70 w-6 shrink-0" x-text="String(idx+1).padStart(2,'0')"></span>
+                  <div class="flex-1 min-w-0">
+                    <p class="font-medium truncate" x-text="acc.display_name"></p>
+                    <p class="text-xs text-sub mt-0.5" x-text="providerLabel(acc.provider)"></p>
                   </div>
-                </template>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <button @click="toggleEnabled(acc)"
+                            class="text-[11px] px-3 py-1.5 border tracking-ledger uppercase transition-colors"
+                            :class="acc.enabled ? 'border-emerald2 text-emerald2' : 'border-line text-sub/60'"
+                            x-text="acc.enabled ? '启用中' : '已停用'"></button>
+                    <button @click="deleteAccount(acc)"
+                            class="text-[11px] px-3 py-1.5 border border-line text-brick/80 hover:border-brick hover:bg-brick/5 tracking-ledger uppercase transition-colors">删除</button>
+                  </div>
+                </div>
               </template>
+              <p x-show="accounts.length===0" class="text-sm text-sub/60 text-center py-10">暂无账户</p>
             </div>
-            <p class="text-xs text-slate-400 mt-3">完整调用示例见仓库根目录 USAGE.md</p>
-          </div>
+          </section>
+
+          <!-- 通知配置 -->
+          <section>
+            <p class="text-[11px] uppercase tracking-ledger text-sub mb-2">03 / 通知配置</p>
+            <h2 class="font-serif text-xl md:text-2xl font-medium mb-2">告警与报告</h2>
+            <p class="text-sm text-sub mb-6 max-w-xl">配置告警和每日报告的发送渠道。只填你用的那个就行，其它留空。</p>
+
+            <!-- 告警阈值 -->
+            <div class="mb-8 p-5 bg-card hairline-b hairline-t">
+              <p class="text-[11px] uppercase tracking-ledger text-sub mb-4">默认告警阈值（每账户可在账户配置里单独覆盖）</p>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">余额告警（元）</label>
+                  <input type="number" x-model="notify.alert_balance_threshold" placeholder="10" class="field-line w-full tabular">
+                </div>
+                <div>
+                  <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">窗口已用告警（%）</label>
+                  <input type="number" x-model="notify.alert_used_threshold" placeholder="90" class="field-line w-full tabular">
+                </div>
+              </div>
+            </div>
+
+            <!-- Server 酱 -->
+            <div class="mb-4 py-5 hairline-b">
+              <p class="font-medium mb-1">Server 酱 <span class="text-xs text-sub ml-2 font-normal">微信推送 · 去 sct.ftqq.com 申请</span></p>
+              <input type="password" x-model="notify.notify_serverchan_key" :placeholder="notify._loaded?.notify_serverchan_key?.masked || 'SCTxxxx'"
+                     class="field-line w-full font-mono text-sm">
+            </div>
+
+            <!-- 折叠：Telegram / 邮件 -->
+            <details class="mb-6">
+              <summary class="text-sm text-sub cursor-pointer hover:text-ink select-none py-2">展开 Telegram / 邮件配置（可选） →</summary>
+              <div class="mt-4 space-y-6">
+                <div class="py-5 hairline-t">
+                  <p class="font-medium mb-3">Telegram Bot</p>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">Bot Token</label>
+                      <input type="password" x-model="notify.notify_telegram_bot_token" placeholder="Bot Token" class="field-line w-full font-mono text-sm">
+                    </div>
+                    <div>
+                      <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">Chat ID</label>
+                      <input x-model="notify.notify_telegram_chat_id" placeholder="Chat ID" class="field-line w-full">
+                    </div>
+                  </div>
+                </div>
+                <div class="py-5 hairline-t">
+                  <p class="font-medium mb-3">邮件（SMTP）</p>
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">SMTP 主机</label>
+                      <input x-model="notify.notify_smtp_host" placeholder="smtp.xxx.com" class="field-line w-full text-sm">
+                    </div>
+                    <div>
+                      <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">端口</label>
+                      <input x-model="notify.notify_smtp_port" placeholder="465" class="field-line w-full text-sm tabular">
+                    </div>
+                    <div>
+                      <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">发件邮箱</label>
+                      <input x-model="notify.notify_smtp_user" placeholder="from@xxx.com" class="field-line w-full text-sm">
+                    </div>
+                    <div>
+                      <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">授权码</label>
+                      <input type="password" x-model="notify.notify_smtp_password" placeholder="授权码" class="field-line w-full text-sm">
+                    </div>
+                    <div class="sm:col-span-2">
+                      <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">收件邮箱（默认同发件）</label>
+                      <input x-model="notify.notify_smtp_to" placeholder="to@xxx.com" class="field-line w-full text-sm">
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </details>
+
+            <div class="flex flex-wrap items-center gap-4 pt-2">
+              <button @click="saveNotify()" :disabled="notify.saving"
+                      class="bg-ink text-paper text-sm tracking-ledger uppercase px-6 py-3 hover:bg-emerald2 transition-colors disabled:opacity-40">
+                <span x-show="!notify.saving">保存配置</span>
+                <span x-show="notify.saving" class="tabular">保存中…</span>
+              </button>
+              <button @click="testNotify()" :disabled="notify.testing"
+                      class="border border-line text-sm tracking-ledger uppercase px-6 py-3 hover:border-ink transition-colors disabled:opacity-40">
+                <span x-show="!notify.testing">测试通知</span>
+                <span x-show="notify.testing" class="tabular">发送中…</span>
+              </button>
+              <span x-show="notify.msg" class="text-sm tabular" :class="notify.ok ? 'text-emerald2' : 'text-brick'" x-text="notify.msg"></span>
+            </div>
+          </section>
+
+          <button @click="tab='overview'" class="text-sm text-sub hover:text-emerald2 transition-colors flex items-center gap-1.5">
+            <span>←</span> 返回总览
+          </button>
         </div>
-        <button @click="tab='overview'" class="text-sm text-indigo-600 hover:underline">← 返回总览</button>
-      </div>
+
+        <!-- ============ 趋势 ============ -->
+        <div x-show="tab==='trend'" class="space-y-8">
+          <div>
+            <p class="text-[11px] uppercase tracking-ledger text-sub mb-2">趋势 / Trend</p>
+            <h2 class="font-serif text-xl md:text-2xl font-medium mb-6">历史曲线</h2>
+
+            <div class="flex flex-wrap items-end gap-x-8 gap-y-4 mb-6">
+              <div>
+                <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">账户</label>
+                <select x-model="trend.accountId" @change="loadTrend()" class="field-line min-w-[12rem] bg-transparent">
+                  <option value="">— 选择账户 —</option>
+                  <template x-for="a in accounts" :key="a.id">
+                    <option :value="a.id" x-text="a.display_name + ' (' + providerLabel(a.provider) + ')'"></option>
+                  </template>
+                </select>
+              </div>
+              <div>
+                <label class="block text-[11px] uppercase tracking-ledger text-sub mb-2">范围</label>
+                <select x-model="trend.days" @change="loadTrend()" class="field-line bg-transparent">
+                  <option value="1">最近 1 天</option>
+                  <option value="7">最近 7 天</option>
+                  <option value="30">最近 30 天</option>
+                  <option value="90">最近 90 天</option>
+                </select>
+              </div>
+              <button @click="loadTrend()" class="text-sm tracking-ledger uppercase border border-line px-5 py-2.5 hover:border-emerald2 hover:text-emerald2 transition-colors">刷新图表</button>
+            </div>
+
+            <p x-show="trend.error" class="text-sm text-brick mb-4" x-text="trend.error"></p>
+            <p x-show="!trend.accountId" class="text-sm text-sub/60 py-16 text-center italic">请选择一个账户查看趋势</p>
+            <p x-show="trend.accountId && trend.points.length===0 && !trend.loading" class="text-sm text-sub/60 py-16 text-center italic">暂无历史数据（多刷新几次或等定时任务跑一会儿）</p>
+            <div x-show="trend.accountId" x-ref="chart" class="h-[300px] md:h-[380px] w-full"></div>
+          </div>
+
+          <button @click="tab='overview'" class="text-sm text-sub hover:text-emerald2 transition-colors flex items-center gap-1.5">
+            <span>←</span> 返回总览
+          </button>
+        </div>
+
+        <!-- ============ 模型能力 ============ -->
+        <div x-show="tab==='models'" class="space-y-8">
+          <div>
+            <div class="flex items-end justify-between mb-2 flex-wrap gap-2">
+              <div>
+                <p class="text-[11px] uppercase tracking-ledger text-sub mb-2">模型 / Models</p>
+                <h2 class="font-serif text-xl md:text-2xl font-medium">各家模型能力</h2>
+              </div>
+              <span class="text-[11px] text-sub tabular" x-show="modelsData.last_updated">数据更新于 <span x-text="modelsData.last_updated"></span></span>
+            </div>
+            <p class="text-sm text-sub mb-6 max-w-2xl">
+              上下文长度、思考模式、最大输出的对比。<span class="text-ember">模型能力随厂商更新而变化，此表需定期人工核实。</span>
+            </p>
+
+            <!-- 动态查询 -->
+            <div class="mb-10 p-5 bg-card hairline-t hairline-b">
+              <p class="font-medium mb-1">动态查询当前可用模型</p>
+              <p class="text-xs text-sub mb-4 max-w-xl">用某账户的 key 实时拉取该家 <code class="font-mono text-emerald2">/v1/models</code>，能看到厂商新加了哪些模型。能力详情仍由静态表补充，拿不到的显示「未知」。</p>
+              <div class="flex flex-wrap items-center gap-3">
+                <select x-model="liveModels.accountId" class="field-line min-w-[12rem] bg-transparent">
+                  <option value="">— 选择账户 —</option>
+                  <template x-for="a in accounts" :key="a.id">
+                    <option :value="a.id" x-text="a.display_name + ' (' + providerDisplayName(a.provider) + ')'"></option>
+                  </template>
+                </select>
+                <button @click="loadLiveModels()" :disabled="!liveModels.accountId || liveModels.loading"
+                        class="bg-ink text-paper text-sm tracking-ledger uppercase px-5 py-2.5 hover:bg-emerald2 transition-colors disabled:opacity-40">
+                  <span x-show="!liveModels.loading">查询实时模型</span>
+                  <span x-show="liveModels.loading" class="tabular">查询中…</span>
+                </button>
+                <span x-show="liveModels.error" class="text-sm text-brick" x-text="liveModels.error"></span>
+              </div>
+              <div x-show="liveModels.result" class="mt-5 pt-5 hairline-t">
+                <p class="text-xs text-sub mb-3">
+                  <span class="font-medium text-ink" x-text="liveModels.result?.display_name"></span>：
+                  <span x-show="liveModels.result?.live_count !== undefined">实时 <span class="font-mono text-emerald2" x-text="liveModels.result?.live_count"></span> 个模型</span>
+                  <span x-show="liveModels.result?.live_error" class="text-ember">（实时拉取失败，显示静态：<span x-text="liveModels.result?.live_error"></span>）</span>
+                </p>
+                <div class="flex flex-wrap gap-1.5">
+                  <template x-for="m in (liveModels.result?.models || [])" :key="m.id">
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs border"
+                          :class="m.thinking==='unknown' ? 'border-ember/40 text-ember' : 'border-line text-sub'">
+                      <code class="font-mono" x-text="m.id"></code>
+                      <span x-show="m.context" class="text-sub/70 tabular">· <span x-text="fmtContext(m.context)"></span></span>
+                      <span x-show="m.thinking==='unknown'" class="text-ember">未知</span>
+                    </span>
+                  </template>
+                </div>
+              </div>
+            </div>
+
+            <!-- 各家模型：PC 表格 / 手机卡片 -->
+            <template x-for="(modelList, provider) in modelsData.models" :key="provider">
+              <div class="mb-10">
+                <h3 class="font-serif text-lg font-medium mb-3 pb-2 hairline-b" x-text="providerDisplayName(provider)"></h3>
+
+                <!-- PC 表格 -->
+                <div class="hidden md:block overflow-x-auto">
+                  <table class="w-full text-sm">
+                    <thead>
+                      <tr class="text-left text-[10px] uppercase tracking-ledger text-sub hairline-b">
+                        <th class="py-2.5 pr-4 font-medium">模型</th>
+                        <th class="py-2.5 px-4 font-medium">上下文</th>
+                        <th class="py-2.5 px-4 font-medium">最大输出</th>
+                        <th class="py-2.5 px-4 font-medium">思考模式</th>
+                        <th class="py-2.5 pl-4 font-medium">备注</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template x-for="m in modelList" :key="m.id">
+                        <tr class="hairline-b hover:bg-emerald2/[0.03]">
+                          <td class="py-3 pr-4">
+                            <div class="font-mono text-xs text-emerald2" x-text="m.id"></div>
+                            <div class="text-xs text-sub mt-0.5" x-text="m.name"></div>
+                          </td>
+                          <td class="py-3 px-4 font-mono tabular" x-text="fmtContext(m.context)"></td>
+                          <td class="py-3 px-4 font-mono tabular text-sub" x-text="fmtContext(m.max_output)"></td>
+                          <td class="py-3 px-4">
+                            <span class="inline-block px-2 py-0.5 text-[11px] tracking-ledger"
+                                  :class="thinkingBadgeClass(m.thinking)" x-text="thinkingLabel(m.thinking)"></span>
+                          </td>
+                          <td class="py-3 pl-4 text-xs text-sub max-w-xs" x-text="m.notes"></td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+
+                <!-- 手机卡片 -->
+                <div class="md:hidden space-y-3">
+                  <template x-for="m in modelList" :key="m.id">
+                    <div class="p-4 bg-card hairline-t hairline-b">
+                      <div class="flex items-start justify-between gap-3 mb-2">
+                        <div class="min-w-0">
+                          <code class="font-mono text-xs text-emerald2 block" x-text="m.id"></code>
+                          <p class="text-xs text-sub mt-0.5" x-text="m.name"></p>
+                        </div>
+                        <span class="inline-block px-2 py-0.5 text-[10px] tracking-ledger shrink-0"
+                              :class="thinkingBadgeClass(m.thinking)" x-text="thinkingLabel(m.thinking)"></span>
+                      </div>
+                      <div class="grid grid-cols-2 gap-2 mt-3 text-[11px]">
+                        <div>
+                          <span class="text-sub/70 uppercase tracking-ledger">上下文 </span>
+                          <span class="font-mono tabular" x-text="fmtContext(m.context)"></span>
+                        </div>
+                        <div>
+                          <span class="text-sub/70 uppercase tracking-ledger">输出 </span>
+                          <span class="font-mono tabular" x-text="fmtContext(m.max_output)"></span>
+                        </div>
+                      </div>
+                      <p class="text-xs text-sub mt-2" x-show="m.notes" x-text="m.notes"></p>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+
+            <!-- 思考模式调用参数 -->
+            <div class="mt-8 p-5 bg-card hairline-t hairline-b">
+              <h3 class="font-medium mb-3">如何开启思考模式（调用参数）</h3>
+              <div class="space-y-2 text-xs">
+                <template x-for="(modelList, provider) in modelsData.models" :key="'param-'+provider">
+                  <template x-for="m in modelList" :key="m.id">
+                    <div x-show="m.thinking_param" class="flex gap-3 items-baseline">
+                      <code class="text-emerald2 font-mono shrink-0" x-text="m.id + ':'"></code>
+                      <code class="text-sub font-mono break-all" x-text="'{ ' + m.thinking_param + ' }'"></code>
+                    </div>
+                  </template>
+                </template>
+              </div>
+              <p class="text-xs text-sub/70 mt-4">完整调用示例见仓库根目录 USAGE.md</p>
+            </div>
+          </div>
+
+          <button @click="tab='overview'" class="text-sm text-sub hover:text-emerald2 transition-colors flex items-center gap-1.5">
+            <span>←</span> 返回总览
+          </button>
+        </div>
+
+      </main>
+
+      <!-- ===== 手机底部 Tab Bar ===== -->
+      <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-card/95 backdrop-blur-md hairline-t safe-bottom">
+        <div class="grid grid-cols-4 h-16">
+          <button @click="tab='overview'"
+                  class="flex flex-col items-center justify-center gap-1 transition-colors"
+                  :class="tab==='overview' ? 'text-emerald2' : 'text-sub/60'">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+            <span class="text-[10px] tracking-ledger">总览</span>
+          </button>
+          <button @click="tab='trend'; loadTrend()"
+                  class="flex flex-col items-center justify-center gap-1 transition-colors"
+                  :class="tab==='trend' ? 'text-emerald2' : 'text-sub/60'">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
+            <span class="text-[10px] tracking-ledger">趋势</span>
+          </button>
+          <button @click="tab='models'; loadModels()"
+                  class="flex flex-col items-center justify-center gap-1 transition-colors"
+                  :class="tab==='models' ? 'text-emerald2' : 'text-sub/60'">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"></path></svg>
+            <span class="text-[10px] tracking-ledger">模型</span>
+          </button>
+          <button @click="tab='settings'; loadProviders()"
+                  class="flex flex-col items-center justify-center gap-1 transition-colors"
+                  :class="tab==='settings' ? 'text-emerald2' : 'text-sub/60'">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+            <span class="text-[10px] tracking-ledger">设置</span>
+          </button>
+        </div>
+      </nav>
+
     </div>
   </template>
 
@@ -526,8 +793,8 @@ function app() {
       this.notify.testing = true; this.notify.msg = '';
       try {
         const r = await fetch('/api/notify/test', { method:'POST' }).then(r => r.json());
-        if (r.any_ok) { this.notify.msg = '✅ 测试通知已发送，请查收'; this.notify.ok = true; }
-        else { this.notify.msg = '❌ 发送失败：' + JSON.stringify(r.results); this.notify.ok = false; }
+        if (r.any_ok) { this.notify.msg = '测试通知已发送，请查收'; this.notify.ok = true; }
+        else { this.notify.msg = '发送失败：' + JSON.stringify(r.results); this.notify.ok = false; }
       } catch (e) { this.notify.msg = e.message; this.notify.ok = false; }
       finally { this.notify.testing = false; }
     },
@@ -592,29 +859,40 @@ function app() {
       const pts = this.trend.points;
       const xData = pts.map(p => p.fetched_at ? new Date(p.fetched_at.replace(' ', 'T')).toLocaleString('zh-CN', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}) : '');
       let series = [], yName = '';
+      // 翡翠系配色，匹配极简金融风
+      const palette = { primary: '#0F766E', ember: '#B45309', brick: '#B91C1C' };
       if (acc && acc.type === 'balance') {
         const cur = (pts.find(p => p.currency) || {}).currency || 'CNY';
         yName = cur === 'USD' ? '余额 (USD)' : '余额 (CNY)';
         series = [{ name: '余额', type: 'line', smooth: true, symbol: 'circle', symbolSize: 5,
-          data: pts.map(p => p.balance), itemStyle: { color: '#4f46e5' },
-          areaStyle: { color: 'rgba(79,70,229,0.1)' } }];
+          data: pts.map(p => p.balance), itemStyle: { color: palette.primary },
+          lineStyle: { color: palette.primary, width: 1.5 },
+          areaStyle: { color: 'rgba(15,118,110,0.08)' } }];
       } else {
         yName = '已用百分比 (%)';
         const hasFive = pts.some(p => p.five_hour_used != null);
         const hasWeekly = pts.some(p => p.weekly_used != null);
         series = [];
         if (hasFive) series.push({ name: '5小时窗口', type: 'line', smooth: true, symbol: 'none',
-          data: pts.map(p => p.five_hour_used), itemStyle: { color: '#10b981' } });
+          data: pts.map(p => p.five_hour_used), itemStyle: { color: palette.primary },
+          lineStyle: { color: palette.primary, width: 1.5 } });
         if (hasWeekly) series.push({ name: '每周窗口', type: 'line', smooth: true, symbol: 'none',
-          data: pts.map(p => p.weekly_used), itemStyle: { color: '#f59e0b' } });
+          data: pts.map(p => p.weekly_used), itemStyle: { color: palette.ember },
+          lineStyle: { color: palette.ember, width: 1.5 } });
       }
       this.trend.chartInstance.setOption({
-        tooltip: { trigger: 'axis' },
-        legend: { top: 0 },
-        grid: { left: 60, right: 20, top: 40, bottom: 60 },
-        xAxis: { type: 'category', data: xData, axisLabel: { rotate: 30 } },
+        tooltip: { trigger: 'axis', backgroundColor: '#17181C', borderColor: '#17181C',
+          textStyle: { color: '#FAFAF7', fontFamily: 'Space Mono, monospace' } },
+        legend: { top: 0, textStyle: { fontFamily: 'Hanken Grotesk, sans-serif', color: '#6B6B66' } },
+        grid: { left: 56, right: 16, top: 40, bottom: 60 },
+        xAxis: { type: 'category', data: xData, axisLabel: { rotate: 30, color: '#6B6B66', fontFamily: 'Space Mono, monospace', fontSize: 10 },
+          axisLine: { lineStyle: { color: '#E6E4DD' } }, axisTick: { show: false } },
         yAxis: { type: 'value', name: yName, scale: acc.type !== 'balance' ? false : true,
-          max: acc.type !== 'balance' ? 100 : null },
+          max: acc.type !== 'balance' ? 100 : null,
+          nameTextStyle: { color: '#6B6B66', fontFamily: 'Hanken Grotesk, sans-serif', fontSize: 11 },
+          axisLabel: { color: '#6B6B66', fontFamily: 'Space Mono, monospace' },
+          splitLine: { lineStyle: { color: '#E6E4DD', type: 'dashed' } },
+          axisLine: { show: false }, axisTick: { show: false } },
         series,
       }, true);
     },
@@ -686,10 +964,10 @@ function app() {
     },
     thinkingBadgeClass(t) {
       return {
-        supported: 'bg-indigo-100 text-indigo-700',
-        unsupported: 'bg-slate-100 text-slate-400',
-        default_on: 'bg-emerald-100 text-emerald-700',
-      }[t] || 'bg-slate-100 text-slate-500';
+        supported: 'bg-emerald2/10 text-emerald2',
+        unsupported: 'bg-line/60 text-sub/70',
+        default_on: 'bg-emerald2/10 text-emerald2',
+      }[t] || 'bg-line/60 text-sub/70';
     },
   };
 }
