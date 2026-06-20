@@ -45,7 +45,7 @@ def test_merge_case_insensitive():
     live = [LiveModel(id="minimax-m2")]  # 小写
     merged = models_meta.merge_live_with_static("minimax", live)
     m = next(x for x in merged if x["id"].lower() == "minimax-m2")
-    assert m["thinking"] == "supported"  # 静态表是 MiniMax-M2，能匹配上
+    assert m["thinking"] in ("supported", "supported_param_unknown")  # 静态表 MiniMax-M2 现在标 supported_param_unknown
     print("[PASS] id 大小写不敏感匹配")
 
 
@@ -63,11 +63,11 @@ def test_merge_dedup():
 
 def test_merge_keeps_static_when_missing_in_live():
     """静态表有、动态没返回的模型仍保留（避免 key 无权限时模型消失）。"""
-    live = [LiveModel(id="deepseek-chat")]  # 只返回了 1 个
+    live = [LiveModel(id="deepseek-v4-flash")]  # 只返回了 1 个
     merged = models_meta.merge_live_with_static("deepseek", live)
     ids = [m["id"] for m in merged]
-    assert "deepseek-chat" in ids
-    assert "deepseek-reasoner" in ids  # 静态表的另一个也保留
+    assert "deepseek-v4-flash" in ids
+    assert "deepseek-v4-pro" in ids  # 静态表的另一个也保留
     print("[PASS] 静态表模型在动态缺失时仍保留")
 
 

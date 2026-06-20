@@ -25,28 +25,31 @@ LAST_UPDATED = "2026-06-15"
 # 每家的模型列表。只收录 coding plan 常用 / 主推模型，避免信息过载。
 MODELS: dict[str, list[dict]] = {
     "deepseek": [
+        # 联调确认（2026-06-15）：真实 /models 返回 v4-flash / v4-pro
         {
-            "id": "deepseek-chat",
-            "name": "DeepSeek-V3（对话）",
+            "id": "deepseek-v4-flash",
+            "name": "DeepSeek V4 Flash",
             "context": 64000,
             "max_output": 8192,
             "thinking": "unsupported",
             "thinking_param": None,
-            "notes": "通用对话模型，速度快、便宜。不支持思考。",
-            "source": "https://api-docs.deepseek.com/quick_start/pricing",
+            "notes": "轻量快速版。能力参数待官方文档确认。",
+            "source": "live /models",
         },
         {
-            "id": "deepseek-reasoner",
-            "name": "DeepSeek-R1（推理）",
+            "id": "deepseek-v4-pro",
+            "name": "DeepSeek V4 Pro",
             "context": 64000,
             "max_output": 32768,
             "thinking": "default_on",
             "thinking_param": None,
-            "notes": "推理模型，思考默认开启且无法关闭。响应更慢但更准。",
-            "source": "https://api-docs.deepseek.com/guides/reasoning_model",
+            "notes": "推理增强版（思考默认开启）。能力参数待官方文档确认。",
+            "source": "live /models",
         },
     ],
     "glm": [
+        # 联调确认（2026-06-15）：真实 /models 返回 glm-4.5 ~ glm-5.2 共 8 个
+        # 但 context_length 未返回，下面能力参数来自历史文档，新模型（glm-5.x）标 unknown
         {
             "id": "glm-4.6",
             "name": "GLM-4.6",
@@ -54,7 +57,7 @@ MODELS: dict[str, list[dict]] = {
             "max_output": 128000,
             "thinking": "supported",
             "thinking_param": '"thinking": {"type": "enabled", "summary": true}',
-            "notes": "智谱当前主推。200K 上下文。思考可选开关，summary 控制是否返回思考摘要。",
+            "notes": "200K 上下文。思考可选开关，summary 控制是否返回思考摘要。",
             "source": "https://docs.bigmodel.cn/cn/coding-plan/faq",
         },
         {
@@ -64,43 +67,49 @@ MODELS: dict[str, list[dict]] = {
             "max_output": 4096,
             "thinking": "supported",
             "thinking_param": '"thinking": {"type": "enabled"}',
-            "notes": "上一代旗舰，128K 上下文。",
+            "notes": "128K 上下文。",
             "source": "https://docs.bigmodel.cn/cn/coding-plan/faq",
         },
+        # glm-4.5-air / glm-4.7 / glm-5 / glm-5-turbo / glm-5.1 / glm-5.2
+        # → 不在静态表，靠动态拉取时自动出现并标 unknown
     ],
     "kimi": [
+        # 联调确认（2026-06-15）：真实 /models 只返回 kimi-for-coding，ctx=262K
         {
-            "id": "kimi-k2",
-            "name": "Kimi K2",
-            "context": 131072,
+            "id": "kimi-for-coding",
+            "name": "Kimi for Coding",
+            "context": 262144,
             "max_output": None,
             "thinking": "supported",
             "thinking_param": '"thinking": {"type": "enabled"}',
-            "notes": "Moonshot 旗舰，128K 上下文。思考可选。长文本能力强。",
-            "source": "https://platform.kimi.com/docs/api/chat",
-        },
-        {
-            "id": "kimi-k2-thinking",
-            "name": "Kimi K2 Thinking",
-            "context": 131072,
-            "max_output": None,
-            "thinking": "default_on",
-            "thinking_param": None,
-            "notes": "推理增强版，思考默认开启。",
-            "source": "https://platform.kimi.com/docs/api/chat",
+            "notes": "联调实测 ctx=262K（API 实时返回）。思考可选。",
+            "source": "live /models",
         },
     ],
     "minimax": [
+        # 联调确认（2026-06-15）：真实 /models 返回 M2/M2.1/M2.5/M2.7/M3 共 8 个
+        # context_length 未返回
+        {
+            "id": "MiniMax-M3",
+            "name": "MiniMax M3（最新）",
+            "context": 1048576,
+            "max_output": None,
+            "thinking": "supported_param_unknown",
+            "thinking_param": None,
+            "notes": "最新旗舰。1M 上下文为家族规格，思考参数厂商仍在调整，建议查最新文档。",
+            "source": "live /models",
+        },
         {
             "id": "MiniMax-M2",
             "name": "MiniMax M2",
             "context": 1048576,
             "max_output": None,
-            "thinking": "supported",
-            "thinking_param": '"stream_mode": " augmentation"',
-            "notes": "1M（百万级）上下文是亮点。思考通过特定参数开启（具体名厂商仍在调整，建议核实）。",
-            "source": "https://platform.minimaxi.com/docs/guides/pricing-paygo",
+            "thinking": "supported_param_unknown",
+            "thinking_param": None,
+            "notes": "1M 上下文。思考参数厂商仍在调整。",
+            "source": "live /models",
         },
+        # M2.1/M2.5/M2.7 及 highspeed 变体 → 动态拉取时自动出现标 unknown
     ],
 }
 

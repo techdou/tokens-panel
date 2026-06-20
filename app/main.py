@@ -36,7 +36,11 @@ log = logging.getLogger("tokens")
 app = FastAPI(title="Token 余额聚合面板", docs_url=None, redoc_url=None)
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+# 挂载静态文件（app.js 等）。html=True 让 /static/ 也走缓存友好头
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.on_event("startup")

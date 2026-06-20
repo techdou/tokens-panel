@@ -264,6 +264,99 @@ def test_minimax_no_general():
     assert result.raw_error is not None  # 只有 video，无 general
 
 
+# ============ OpenAI 兼容中转站 ============
+
+def test_proxy_normalize_base_variants():
+    """base_url 各种写法都应规范化到一致的 (root, v1)。"""
+    from app.providers import openai_proxy
+    assert openai_proxy._normalize_base("https://x.com") == ("https://x.com", "https://x.com/v1")
+    assert openai_proxy._normalize_base("https://x.com/") == ("https://x.com", "https://x.com/v1")
+    assert openai_proxy._normalize_base("https://x.com/v1") == ("https://x.com", "https://x.com/v1")
+    assert openai_proxy._normalize_base("https://x.com/v1/") == ("https://x.com", "https://x.com/v1")
+
+
+def test_proxy_normalize_base_empty():
+    """空字符串应抛 AdapterError。"""
+    from app.providers import openai_proxy
+    from app.providers.base import AdapterError
+    raised = False
+    try:
+        openai_proxy._normalize_base("")
+    except AdapterError:
+        raised = True
+    assert raised, "空 base_url 应抛 AdapterError"
+
+
+def test_proxy_parse_hard_limit_usd():
+    """subscription 顶层 hard_limit_usd（OpenAI 原始结构）。"""
+    from app.providers import openai_proxy
+    assert openai_proxy._parse_hard_limit_usd({"hard_limit_usd": 120.0}) == 120.0
+
+
+def test_proxy_parse_hard_limit_usd_wrapped_in_data():
+    """部分中转站把字段包进 data 里。"""
+    from app.providers import openai_proxy
+    assert openai_proxy._parse_hard_limit_usd({"data": {"hard_limit_usd": "50.5"}}) == 50.5
+
+
+def test_proxy_parse_hard_limit_usd_invalid():
+    from app.providers import openai_proxy
+    assert openai_proxy._parse_hard_limit_usd({"hard_limit_usd": None}) is None
+    assert openai_proxy._parse_hard_limit_usd({"data": {"hard_limit_usd": 0}}) is None  # 0 视为无效
+    assert openai_proxy._parse_hard_limit_usd({}) is None
+
+
+def test_proxy_parse_total_usage_usd():
+    """usage 的 total_usage 单位是美分，÷100 得美元。"""
+    from app.providers import openai_proxy
+    # 5000 美分 = 50 美元
+    assert openai_proxy._parse_total_usage_usd({"total_usage": 5000}) == 50.0
+    assert openai_proxy._parse_total_usage_usd({"data": {"total_usage": 0}}) == 0.0
+    assert openai_proxy._parse_total_usage_usd({}) is None
+
+
+def test_proxy_balance_arithmetic():
+    """验算余额 = hard_limit - usage/100 的关键算式（驱动 query 路径 1 的核心）。"""
+    from app.providers import openai_proxy
+    hard = openai_proxy._parse_hard_limit_usd({"hard_limit_usd": 100.0})
+    used = openai_proxy._parse_total_usage_usd({"data": {"total_usage": 2500}}) or 0.0  # 25 美元
+    balance = max(0.0, hard - used)
+    assert balance == 75.0
+
+
+def test_proxy_parse_user_self_quota():
+    """/api/user/self：quota÷500000 = 美元余额（used_quota 不纳入算式）。"""
+    from app.providers import openai_proxy
+    # quota=2500000 → 5 美元（used_quota 只留 raw 供排障，不影响余额）
+    assert openai_proxy._parse_user_self({"data": {"quota": 2500000, "used_quota": 500000}}) == 5.0
+
+
+def test_proxy_parse_user_self_top_level_data():
+    """data 直接在顶层（少数实现不包 data）。"""
+    from app.providers import openai_proxy
+    assert openai_proxy._parse_user_self({"quota": 500000}) == 1.0
+
+
+def test_proxy_parse_user_self_negative_clamped():
+    """负 quota（冻结账户等异常）应被 query 层的 max(0, ...) 兜住。
+    这里只断言 _parse 原样返回负值，clamp 发生在 query 出口（避免误导调用者）。"""
+    from app.providers import openai_proxy
+    assert openai_proxy._parse_user_self({"quota": -100000}) == -0.2
+
+
+def test_proxy_parse_user_self_no_quota():
+    """响应里没有 quota 字段 → None（触发回退失败报错）。"""
+    from app.providers import openai_proxy
+    assert openai_proxy._parse_user_self({"data": {"username": "x"}}) is None
+    assert openai_proxy._parse_user_self({}) is None
+
+
+def test_proxy_normalize_base_case_insensitive():
+    """/V1 大写也能识别（少数中转站文档写大写）。"""
+    from app.providers import openai_proxy
+    assert openai_proxy._normalize_base("https://x.com/V1") == ("https://x.com", "https://x.com/V1")
+
+
 if __name__ == "__main__":
     funcs = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     passed = 0

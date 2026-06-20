@@ -16,16 +16,17 @@ def test_all_providers_have_models():
 def test_each_model_has_required_fields():
     from app import models_meta
     required = {"id", "name", "context", "thinking", "notes", "source"}
+    valid_thinking = ("supported", "unsupported", "default_on", "supported_param_unknown", "unknown")
     for provider, models in models_meta.MODELS.items():
         for m in models:
             missing = required - set(m.keys())
             assert not missing, f"{provider}/{m.get('id')} 缺字段: {missing}"
             # thinking 值校验
-            assert m["thinking"] in ("supported", "unsupported", "default_on"), \
+            assert m["thinking"] in valid_thinking, \
                 f"{m['id']} thinking 值非法: {m['thinking']}"
-            # 思考模式必须给出参数示例（default_on 例外，因为默认开无需参数）
+            # 明确"支持"思考的必须给参数示例；参数未公开的用 supported_param_unknown
             if m["thinking"] == "supported":
-                assert m.get("thinking_param"), f"{m['id']} 支持思考但没给 thinking_param"
+                assert m.get("thinking_param"), f"{m['id']} 标 supported 但没给 thinking_param（若参数未知请用 supported_param_unknown）"
     print("[PASS] 所有模型字段完整且 thinking 值合法")
 
 
