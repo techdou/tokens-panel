@@ -7,7 +7,7 @@ from __future__ import annotations
 from types import ModuleType
 from typing import Any
 
-from . import deepseek, glm, kimi, minimax
+from . import deepseek, glm, kimi, minimax, openai_proxy
 from .base import ProviderResult
 
 # provider key -> (adapter module, 展示名, 类型, 是否 window 型需要按桶渲染)
@@ -16,6 +16,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
     "glm": {"module": glm, "display_name": glm.DISPLAY_NAME, "type": "window"},
     "kimi": {"module": kimi, "display_name": kimi.DISPLAY_NAME, "type": "window"},
     "minimax": {"module": minimax, "display_name": minimax.DISPLAY_NAME, "type": "window"},
+    "openai_proxy": {"module": openai_proxy, "display_name": openai_proxy.DISPLAY_NAME, "type": "balance"},
 }
 
 
