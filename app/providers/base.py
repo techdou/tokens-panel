@@ -97,14 +97,15 @@ class LiveModel(BaseModel):
     created: int | None = None
     owned_by: str | None = None
     context_length: int | None = None      # 仅部分厂商（如 GLM）返回
-    description: str | None = None
+    description: str | None = None         # 也兼容 Anthropic 的 display_name
 
 
 async def fetch_models_openai_compat(url: str, headers: dict[str, str]) -> list[LiveModel]:
-    """统一的 OpenAI 兼容 /v1/models 解析。
+    """统一的 /v1/models 解析（兼容 OpenAI / Anthropic 及各类中转站）。
 
-    各家基本都遵循 {data: [{id, object, created, owned_by, ...}]} 格式。
-    个别家（如 GLM）在条目里额外带 context_length / description，一并提取。
+    OpenAI 系遵循 {data: [{id, object, created, owned_by, ...}]} 格式。
+    Anthropic 官方返回 {data: [{id, type, display_name, created_at}]}，结构兼容。
+    个别家（如 GLM）在条目里额外带 context_length，一并提取。
     """
     raw = await http_get(url, headers)
     data = raw.get("data") if isinstance(raw, dict) else raw
@@ -119,7 +120,7 @@ async def fetch_models_openai_compat(url: str, headers: dict[str, str]) -> list[
             created=item.get("created"),
             owned_by=item.get("owned_by"),
             context_length=item.get("context_length") or item.get("max_context_length"),
-            description=item.get("description"),
+            description=item.get("description") or item.get("display_name"),
         ))
     return out
 

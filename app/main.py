@@ -197,14 +197,18 @@ def api_providers():
 
 @app.get("/api/models")
 def api_models(provider: str | None = None):
-    """返回各家模型能力表（上下文、思考模式等）。静态数据，定期维护。"""
+    """模型能力表占位端点（保留接口兼容）。
+
+    模型表已改为纯动态：前端「模型」tab 遍历各账户调
+    /api/accounts/{id}/models 实时拉取 /v1/models，不再依赖本端点。
+    """
     from . import models_meta
     return models_meta.list_models(provider)
 
 
 @app.get("/api/accounts/{account_id}/models", dependencies=[Depends(require_login)])
 async def api_live_models(account_id: int):
-    """用某账户的 key 动态拉取该家当前可用模型列表，与静态能力表合并返回。"""
+    """用某账户的 key 动态拉取该家当前可用模型列表（纯实时，无静态补充）。"""
     import json as _json
     from . import models_meta
     acc = db.get_account(account_id)
@@ -223,16 +227,16 @@ async def api_live_models(account_id: int):
             "account_id": account_id,
             "provider": acc["provider"],
             "display_name": acc["display_name"],
-            "models": models_meta.MODELS.get(acc["provider"], []),
+            "models": [],
             "live_error": str(e),
             "fetched_at": datetime.utcnow().isoformat(),
         }
-    merged = models_meta.merge_live_with_static(acc["provider"], live)
+    normalized = models_meta.normalize_live_models(live)
     return {
         "account_id": account_id,
         "provider": acc["provider"],
         "display_name": acc["display_name"],
-        "models": merged,
+        "models": normalized,
         "live_count": len(live),
         "fetched_at": datetime.utcnow().isoformat(),
     }

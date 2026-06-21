@@ -1,11 +1,18 @@
-"""OpenAI 兼容中转站（OneAPI / NewAPI 等）余额查询。
+"""自定义 API（OpenAI / Anthropic 兼容）查询。
 
-与官方直连 provider 的区别：每个账户的站点地址（base_url）不同，
-需从 account 的 config_json 里取 base_url（参考 GLM 用 config 存 region 的做法）。
+支持两种 API 格式，由 account 的 config_json 里 `api_format` 字段决定（默认 openai）：
+  - openai    ：OpenAI 兼容（含 OneAPI / NewAPI 等中转站）。认证用 `Authorization: Bearer {key}`。
+  - anthropic ：Anthropic 兼容（官方或代理）。认证用 `x-api-key: {key}` + `anthropic-version` 头。
 
-查询策略（两套接口自动回退，覆盖最广）：
+base_url 处理（两种格式通用）：
+  https://x.com         → v1=https://x.com/v1
+  https://x.com/v1      → v1=https://x.com/v1
+  v1 用于拼 /v1/models 和（openai 格式）/v1/dashboard/billing/*。
 
-  路径 1 —— OpenAI 事实标准 dashboard billing（兼容面最广，非 one-api 系也可能支持）：
+模型列表（list_models）：两种格式都拉 /v1/models，仅认证头不同。
+
+余额查询（query，仅 openai 格式）：
+  路径 1 —— OpenAI 事实标准 dashboard billing（兼容面最广）：
     GET {v1}/dashboard/billing/subscription  → hard_limit_usd（总额度，美元）
     GET {v1}/dashboard/billing/usage         → total_usage（单位是美分，÷100 得美元）
     余额 = hard_limit_usd - total_usage/100
@@ -15,7 +22,9 @@
   路径 2 —— NewAPI/OneAPI 原生接口（兜底，专攻 one-api 系）：
     GET {root}/api/user/self  → data.quota ÷ 500000 = 美元余额（used_quota 不纳入算式，仅留 raw 供排障）
 
-  两路都失败才报错。货币统一标 USD（接口本就是美元口径，即使人民币充值也按美元 quota 计）。
+  两路都失败才报错。货币统一标 USD。
+
+  anthropic 格式：无标准余额查询接口，直接返回提示，不发起请求。
 """
 from __future__ import annotations
 
@@ -26,22 +35,47 @@ from .base import AdapterError, ProviderResult, _safe_result, http_get
 
 log = logging.getLogger(__name__)
 
-DISPLAY_NAME = "OpenAI 兼容中转站"
+DISPLAY_NAME = "自定义 API（OpenAI/Anthropic 兼容）"
 
 # NewAPI/OneAPI 内部 quota 换算：1 美元 = 500000 quota
 QUOTA_PER_USD = 500000.0
 
+# Anthropic API 版本头（官方约定，各家代理基本沿用）
+_ANTHROPIC_VERSION = "2023-06-01"
+
+
+def _api_format(config: dict[str, Any]) -> str:
+    """读取 api_format，默认 openai（向后兼容无此字段的老账户）。"""
+    fmt = str(config.get("api_format") or "openai").strip().lower()
+    return fmt if fmt in ("openai", "anthropic") else "openai"
+
 
 async def list_models(api_key: str, **config: Any) -> list:
-    """中转站通常也兼容 /v1/models，复用统一解析。"""
+    """拉取模型列表。两种格式都走 /v1/models，认证头不同。"""
     from .base import fetch_models_openai_compat
     base_url = _require_base_url(config)
     root, v1 = _normalize_base(base_url)
-    headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
+    fmt = _api_format(config)
+    if fmt == "anthropic":
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": _ANTHROPIC_VERSION,
+            "Accept": "application/json",
+        }
+    else:
+        headers = {"Authorization": f"Bearer {api_key}", "Accept": "application/json"}
     return await fetch_models_openai_compat(f"{v1}/models", headers)
 
 
 async def query(api_key: str, **config: Any) -> ProviderResult:
+    # anthropic 格式：无标准余额查询接口，直接提示，不发起请求
+    if _api_format(config) == "anthropic":
+        return _safe_result(
+            "openai_proxy", DISPLAY_NAME, "balance",
+            error="Anthropic 格式不支持余额查询，请到「模型」页查看可用模型",
+            raw=None,
+        )
+
     raw: dict[str, Any] | None = None
     try:
         base_url = _require_base_url(config)
