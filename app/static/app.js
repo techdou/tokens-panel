@@ -10,7 +10,7 @@ function app() {
     refreshing: false,
     lastRefresh: '',
     // 表单
-    form: { provider: '', display_name: '', api_key: '', config: { base_url: '' } },
+    form: { provider: '', display_name: '', api_key: '', config: { base_url: '', api_format: 'openai' } },
     creating: false,
     formError: '',
     // 趋势
@@ -22,10 +22,9 @@ function app() {
       alert_balance_threshold: '', alert_used_threshold: '',
       saving: false, testing: false, msg: '', ok: false, _loaded: null,
     },
-    // 模型能力表
-    modelsData: { last_updated: '', models: {} },
-    // 动态模型查询
-    liveModels: { accountId: '', loading: false, result: null, error: '' },
+    // 模型 tab：按账户分组的实时模型 + 一键刷新
+    modelsByAccount: {},      // { [accountId]: { display_name, provider, models, live_error, fetched_at } }
+    modelsLoading: false,
 
     async init() {
       const r = await fetch('/api/session').then(r => r.json());
@@ -97,37 +96,50 @@ function app() {
       finally { this.notify.testing = false; }
     },
     async loadModels() {
-      if (this.modelsData.last_updated) return;  // 只加载一次
-      try {
-        const r = await fetch('/api/models').then(r => r.json());
-        this.modelsData = r;
-      } catch (e) { console.error(e); }
+      // 模型表已改为纯动态：进入模型 tab 时不预加载静态表，
+      // 改为首次进入时自动拉取各账户的实时模型。
+      if (Object.keys(this.modelsByAccount).length === 0 && this.accounts.length) {
+        await this.refreshAllModels();
+      }
     },
-    async loadLiveModels() {
-      if (!this.liveModels.accountId) return;
-      this.liveModels.loading = true; this.liveModels.error = ''; this.liveModels.result = null;
+    async refreshAllModels() {
+      if (!this.accounts.length) return;
+      this.modelsLoading = true;
       try {
-        const r = await fetch(`/api/accounts/${this.liveModels.accountId}/models`).then(r => r.json());
-        this.liveModels.result = r;
-      } catch (e) { this.liveModels.error = e.message; }
-      finally { this.liveModels.loading = false; }
+        // 并发拉取所有账户的 /v1/models，互不阻塞
+        const results = await Promise.all(
+          this.accounts.map(a =>
+            fetch(`/api/accounts/${a.id}/models`)
+              .then(r => r.ok ? r.json() : { ...a, models: [], live_error: `HTTP ${r.status}` })
+              .catch(e => ({ ...a, models: [], live_error: e.message }))
+          )
+        );
+        const byId = {};
+        for (const res of results) {
+          byId[res.account_id] = res;
+        }
+        this.modelsByAccount = byId;
+      } finally { this.modelsLoading = false; }
     },
     async createAccount() {
       this.formError = ''; this.creating = true;
       try {
-        // 中转站需带 base_url；其它 provider 不传 config（避免清掉未来可能有的字段）
+        // 自定义 API 需带 base_url + api_format；其它 provider 不传 config
         const payload = { provider: this.form.provider, display_name: this.form.display_name, api_key: this.form.api_key };
         if (this.form.provider === 'openai_proxy') {
           const base = (this.form.config?.base_url || '').trim();
-          if (!base) throw new Error('请填写中转站站点地址');
-          payload.config = { base_url: base };
+          if (!base) throw new Error('请填写 API 站点地址（base_url）');
+          payload.config = {
+            base_url: base,
+            api_format: this.form.config?.api_format || 'openai',
+          };
         }
         const r = await fetch('/api/accounts', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify(payload),
         });
         if (!r.ok) { const e = await r.json(); throw new Error(e.detail || '添加失败'); }
-        this.form = { provider: this.providers[0]?.provider || '', display_name: '', api_key: '', config: { base_url: '' } };
+        this.form = { provider: this.providers[0]?.provider || '', display_name: '', api_key: '', config: { base_url: '', api_format: 'openai' } };
         await this.loadAccounts();
       } catch (e) { this.formError = e.message; }
       finally { this.creating = false; }
@@ -236,7 +248,7 @@ function app() {
 
     // ---- 格式化 ----
     providerLabel(p) {
-      const m = { deepseek: 'DeepSeek · 余额型', glm: '智谱 GLM Coding Plan', kimi: 'Kimi for Coding', minimax: 'MiniMax Coding Plan', openai_proxy: 'OpenAI 兼容中转站 · 余额型' };
+      const m = { deepseek: 'DeepSeek · 余额型', glm: '智谱 GLM Coding Plan', kimi: 'Kimi for Coding', minimax: 'MiniMax Coding Plan', openai_proxy: '自定义 API · OpenAI/Anthropic 兼容' };
       return m[p] || p;
     },
     tierLabel(t) { return { five_hour: '5 小时窗口', weekly: '每周窗口' }[t] || t; },
@@ -256,31 +268,13 @@ function app() {
     },
     // 模型能力表相关
     providerDisplayName(p) {
-      return { deepseek:'DeepSeek', glm:'智谱 GLM', kimi:'Kimi (Moonshot)', minimax:'MiniMax', openai_proxy:'OpenAI 兼容中转站' }[p] || p;
+      return { deepseek:'DeepSeek', glm:'智谱 GLM', kimi:'Kimi (Moonshot)', minimax:'MiniMax', openai_proxy:'自定义 API' }[p] || p;
     },
     fmtContext(n) {
       if (n === null || n === undefined) return '未公开';
       if (n >= 1000000) return (n/1000000).toFixed(0) + 'M';
       if (n >= 1000) return (n/1000).toFixed(0) + 'K';
       return String(n);
-    },
-    thinkingLabel(t) {
-      return {
-        supported:'支持思考',
-        unsupported:'不支持',
-        default_on:'默认开启',
-        supported_param_unknown:'支持·参数未知',
-        unknown:'未知',
-      }[t] || t;
-    },
-    thinkingBadgeClass(t) {
-      return {
-        supported: 'bg-emerald2/10 text-emerald2',
-        unsupported: 'bg-line/60 text-sub/70',
-        default_on: 'bg-emerald2/10 text-emerald2',
-        supported_param_unknown: 'bg-amber-100 text-amber-700',
-        unknown: 'bg-line/60 text-sub/70',
-      }[t] || 'bg-line/60 text-sub/70';
     },
   };
 }
