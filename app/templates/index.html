@@ -6,6 +6,7 @@
   <title>Token 余额聚合</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
   <script defer src="/static/app.js"></script>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
 
@@ -182,7 +183,7 @@
             <nav class="hidden md:flex items-center gap-6 ml-3">
               <button @click="tab='overview'" class="nav-link text-sm pb-1 transition-colors"
                       :class="tab==='overview' ? 'active text-emerald2' : 'text-sub hover:text-ink'">总览</button>
-              <button @click="tab='trend'; loadTrend()" class="nav-link text-sm pb-1 transition-colors"
+              <button @click="tab='trend'; loadStream(); loadTrend()" class="nav-link text-sm pb-1 transition-colors"
                       :class="tab==='trend' ? 'active text-emerald2' : 'text-sub hover:text-ink'">趋势</button>
               <button @click="tab='models'; loadModels()" class="nav-link text-sm pb-1 transition-colors"
                       :class="tab==='models' ? 'active text-emerald2' : 'text-sub hover:text-ink'">模型</button>
@@ -246,15 +247,25 @@
                   <span class="index-no text-[12px] text-sub/70 pt-1 w-6 shrink-0"
                         x-text="String(idx+1).padStart(2,'0')"></span>
 
-                  <!-- 左：名称 + provider -->
+                  <!-- 左：名称 + provider + 详情 -->
                   <div class="flex-1 min-w-0">
-                    <div class="flex items-center gap-2.5 flex-wrap">
-                      <p class="font-medium text-base md:text-[17px] truncate" x-text="acc.display_name"></p>
-                      <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0"
-                            :class="acc.enabled ? 'bg-emerald2' : 'bg-sub/40'"></span>
-                      <span class="text-[12px] uppercase tracking-ledger"
-                            :class="acc.enabled ? 'text-emerald2' : 'text-sub/60'"
-                            x-text="acc.enabled ? '启用' : '停用'"></span>
+                    <!-- 名称行：左名称 + 右余额数字同基线（消除中间空隙） -->
+                    <div class="flex items-baseline justify-between gap-4 flex-wrap">
+                      <div class="flex items-center gap-2.5 flex-wrap min-w-0">
+                        <p class="font-medium text-base md:text-[17px] truncate" x-text="acc.display_name"></p>
+                        <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0"
+                              :class="acc.enabled ? 'bg-emerald2' : 'bg-sub/40'"></span>
+                        <span class="text-[12px] uppercase tracking-ledger"
+                              :class="acc.enabled ? 'text-emerald2' : 'text-sub/60'"
+                              x-text="acc.enabled ? '启用' : '停用'"></span>
+                      </div>
+                      <!-- 余额型：数字紧贴名称行右侧，不另起一栏 -->
+                      <template x-if="acc.latest && !acc.latest.raw_error && acc.latest.type==='balance'">
+                        <p class="font-serif text-2xl md:text-3xl font-light tabular leading-none shrink-0">
+                          <span class="text-sub text-lg align-top" x-text="currencySymbol(acc.latest.currency)"></span><span x-text="formatBalance(acc.latest.balance)"></span>
+                          <span class="text-[12px] uppercase tracking-ledger text-sub/70 ml-1.5 align-middle" x-text="acc.latest.currency || ''"></span>
+                        </p>
+                      </template>
                     </div>
                     <p class="text-xs text-sub mt-1" x-text="providerLabel(acc.provider)"></p>
 
@@ -297,24 +308,6 @@
                     <!-- 无数据 -->
                     <template x-if="!acc.latest">
                       <p class="text-xs text-sub/60 mt-3 italic">待刷新 — 点击右上「刷新」获取</p>
-                    </template>
-                  </div>
-
-                  <!-- 右：余额型金额 / 数值 -->
-                  <div class="text-right shrink-0">
-                    <template x-if="acc.latest && !acc.latest.raw_error && acc.latest.type==='balance'">
-                      <div>
-                        <p class="font-serif text-2xl md:text-3xl font-light tabular leading-none">
-                          <span class="text-sub text-lg align-top" x-text="currencySymbol(acc.latest.currency)"></span><span x-text="formatBalance(acc.latest.balance)"></span>
-                        </p>
-                        <p class="text-[12px] uppercase tracking-ledger text-sub/70 mt-2" x-text="acc.latest.currency || ''"></p>
-                      </div>
-                    </template>
-                    <!-- 窗口型在右侧显示总体状态点（手机端简化） -->
-                    <template x-if="acc.latest && !acc.latest.raw_error && acc.latest.type==='window' && acc.latest.tiers">
-                      <div class="hidden md:block pt-1">
-                        <p class="text-[12px] uppercase tracking-ledger text-sub/60">窗口型</p>
-                      </div>
                     </template>
                   </div>
                 </div>
@@ -368,15 +361,18 @@
                   </label>
                 </div>
                 <p class="text-[12px] text-sub/70 mt-2">
-                  OpenAI 格式可查余额（中转站 / 官方兼容）；Anthropic 格式仅拉取模型列表（无标准余额接口）。
+                  OpenAI 格式可尝试查余额（中转站支持才有）；Anthropic 格式仅拉取模型列表。余额查不到不影响模型拉取。
                 </p>
               </div>
               <div class="md:col-span-2" x-show="form.provider === 'openai_proxy'" x-cloak>
                 <label class="block text-[12px] uppercase tracking-ledger text-sub mb-2">站点地址（base_url）</label>
                 <input x-model="form.config.base_url"
-                       :placeholder="form.config.api_format === 'anthropic' ? 'https://api.anthropic.com 或 https://api.your-relay.com' : 'https://api.your-relay.com 或 https://api.your-relay.com/v1'"
+                       :placeholder="form.config.api_format === 'anthropic' ? 'https://api.anthropic.com/v1' : 'https://api.your-relay.com/v1'"
                        class="field-line w-full font-mono text-sm">
-                <p class="text-[12px] text-sub/70 mt-1.5">API 文档/控制台里的接口地址。带不带 /v1 都行，系统会自动补全。</p>
+                <p class="text-[12px] text-sub/70 mt-1.5">
+                  完整 API 根地址，系统直接在其后拼 <code class="font-mono text-emerald2">/models</code>。
+                  <span class="text-ember">需含到 /v1 等版本前缀就自己带上</span>——系统不再自动补全。
+                </p>
               </div>
               <div class="md:col-span-2">
                 <label class="block text-[12px] uppercase tracking-ledger text-sub mb-2">API Key</label>
@@ -515,10 +511,41 @@
         </div>
 
         <!-- ============ 趋势 ============ -->
-        <div x-show="tab==='trend'" class="space-y-8">
+        <div x-show="tab==='trend'" class="space-y-10">
+          <!-- 河流图：全部窗口型账户已用%堆叠流动 -->
           <div>
-            <p class="text-[12px] uppercase tracking-ledger text-sub mb-2">趋势 / Trend</p>
-            <h2 class="font-serif text-xl md:text-2xl font-medium mb-6">历史曲线</h2>
+            <div class="flex items-end justify-between mb-2 flex-wrap gap-2">
+              <div>
+                <p class="text-[12px] uppercase tracking-ledger text-sub mb-2">趋势 / Trend</p>
+                <h2 class="font-serif text-xl md:text-2xl font-medium">用量河流图</h2>
+              </div>
+              <div class="flex items-center gap-3">
+                <select x-model="stream.days" @change="loadStream()" class="field-line bg-transparent text-sm">
+                  <option value="1">最近 1 天</option>
+                  <option value="7">最近 7 天</option>
+                  <option value="30">最近 30 天</option>
+                  <option value="90">最近 90 天</option>
+                </select>
+                <button @click="loadStream()" :disabled="stream.loading"
+                        class="text-sm tracking-ledger uppercase border border-line px-4 py-2 hover:border-emerald2 hover:text-emerald2 transition-colors disabled:opacity-40">
+                  <span x-show="!stream.loading">刷新</span>
+                  <span x-show="stream.loading" class="tabular">加载中…</span>
+                </button>
+              </div>
+            </div>
+            <p class="text-sm text-sub mb-5 max-w-2xl">
+              各窗口型账户（GLM/Kimi/MiniMax）已用百分比的堆叠流动。<span class="text-ember">居中流动（wiggle）形态，色带宽度即该账户当时的用量。</span>
+            </p>
+            <p x-show="stream.error" class="text-sm text-brick mb-4" x-text="stream.error"></p>
+            <p x-show="!stream.loading && stream.loaded && !stream.hasWindowAccounts" class="text-sm text-sub/60 py-12 text-center italic">尚无窗口型账户（GLM/Kimi/MiniMax），添加后即可看到用量流动</p>
+            <p x-show="!stream.loading && stream.loaded && stream.hasWindowAccounts && stream.series.length === 0" class="text-sm text-sub/60 py-12 text-center italic">暂无历史数据（多刷新几次或等定时任务跑一会儿）</p>
+            <svg x-ref="streamchart" x-show="stream.series.length" class="w-full h-[320px] md:h-[400px]"></svg>
+          </div>
+
+          <!-- 单账户折线（保留原有） -->
+          <div>
+            <p class="text-[12px] uppercase tracking-ledger text-sub mb-2">单账户曲线</p>
+            <h3 class="font-serif text-lg md:text-xl font-medium mb-5">历史曲线</h3>
 
             <div class="flex flex-wrap items-end gap-x-8 gap-y-4 mb-6">
               <div>
@@ -674,7 +701,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
             <span class="text-[12px] tracking-ledger">总览</span>
           </button>
-          <button @click="tab='trend'; loadTrend()"
+          <button @click="tab='trend'; loadStream(); loadTrend()"
                   class="flex flex-col items-center justify-center gap-1 transition-colors"
                   :class="tab==='trend' ? 'text-emerald2' : 'text-sub/60'">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>

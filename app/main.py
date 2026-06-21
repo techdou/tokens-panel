@@ -371,3 +371,79 @@ def api_history(account_id: int, days: int = 7):
         },
         "points": points,
     }
+
+
+@app.get("/api/history", dependencies=[Depends(require_login)])
+def api_history_all(days: int = 7):
+    """返回所有窗口型账户最近 N 天的已用百分比序列，供前端画河流图。
+
+    响应结构（D3 stack 友好的宽格式，按时间桶对齐）：
+      {
+        "keys": ["我的GLM", "我的Kimi", ...],
+        "series": [
+          {"date": "2026-06-15 10:00", "我的GLM": 12.3, "我的Kimi": 5.0},
+          ...
+        ],
+        "has_window_accounts": true   # 是否存在窗口型账户（区分「无此类账户」与「有但无快照」）
+      }
+
+    时间桶策略：把快照时间规约到「分钟」粒度对齐（去掉秒），同桶内取最新一条。
+    避免各账户快照时间戳不完全一致时出现稀疏跳变/锯齿。
+    余额型账户不纳入（量纲不同，由单账户折线图展示）。
+    """
+    days = max(1, min(90, days))
+    from datetime import timedelta
+    since = datetime.now() - timedelta(days=days)
+
+    def _is_window_account(a: dict) -> bool:
+        meta = registry.get_provider_meta(a["provider"])
+        return bool(meta) and meta.get("type") == "window" and a.get("enabled")
+
+    window_accounts = [a for a in db.list_accounts() if _is_window_account(a)]
+    keys = [a["display_name"] for a in window_accounts]
+    if not window_accounts:
+        return {"keys": [], "series": [], "has_window_accounts": False}
+
+    # 每个账户：按「分钟桶」取每桶最新一条的 used_percent（5h/weekly 取最高）
+    # bucket_key 格式 'YYYY-MM-DD HH:MM'（去秒）
+    acc_series: dict[int, dict[str, float]] = {}
+    bucket_set: set[str] = set()
+    for a in window_accounts:
+        snaps = db.snapshots_since(a["id"], since)
+        per_bucket: dict[str, float] = {}
+        for s in snaps:
+            if s.get("raw_error"):
+                continue
+            tiers = s.get("tiers") or []
+            if not tiers:
+                continue
+            t = s.get("fetched_at")
+            if not t or len(t) < 16:
+                continue
+            bucket = t[:16]  # 'YYYY-MM-DD HH:MM'
+            used = max((float(tier.get("used_percent") or 0) for tier in tiers), default=0.0)
+            # 同桶内天然按写入顺序，snapshots_since 已按时间序，后写覆盖即「最新」
+            per_bucket[bucket] = used
+            bucket_set.add(bucket)
+        acc_series[a["id"]] = per_bucket
+
+    if not bucket_set:
+        return {"keys": keys, "series": [], "has_window_accounts": True}
+
+    # 宽格式：每个分钟桶一行，各账户一列；账户在该桶无数据 → 沿用其上一个桶的值（前向填充）
+    # 前向填充避免「账户没在这个分钟被刷新」被误判为用量归零
+    sorted_buckets = sorted(bucket_set)
+    last_val: dict[int, float] = {a["id"]: 0.0 for a in window_accounts}
+    series = []
+    for b in sorted_buckets:
+        row: dict[str, Any] = {"date": b}
+        for a in window_accounts:
+            v = acc_series.get(a["id"], {}).get(b)
+            if v is None:
+                v = last_val.get(a["id"], 0.0)  # 前向填充
+            else:
+                last_val[a["id"]] = v
+            row[a["display_name"]] = v
+        series.append(row)
+
+    return {"keys": keys, "series": series, "has_window_accounts": True}

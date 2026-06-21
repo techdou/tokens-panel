@@ -15,6 +15,8 @@ function app() {
     formError: '',
     // 趋势
     trend: { accountId: '', days: '7', points: [], loading: false, error: '', account: null, chartInstance: null },
+    // 河流图（全部窗口型账户已用%堆叠流动）
+    stream: { days: '7', keys: [], series: [], loading: false, error: '', loaded: false, hasWindowAccounts: true },
     // 通知配置
     notify: {
       notify_serverchan_key: '', notify_telegram_bot_token: '', notify_telegram_chat_id: '',
@@ -30,6 +32,15 @@ function app() {
       const r = await fetch('/api/session').then(r => r.json());
       this.loggedIn = r.logged_in;
       if (this.loggedIn) { await this.loadAccounts(); }
+      // 窗口缩放时重绘河流图与趋势图（防抖）
+      let rt;
+      window.addEventListener('resize', () => {
+        clearTimeout(rt);
+        rt = setTimeout(() => {
+          if (this.tab === 'trend' && this.stream.series.length) this.renderStream();
+          if (this.tab === 'trend' && this.trend.chartInstance) this.renderChart();
+        }, 200);
+      });
     },
     async login() {
       this.loginError = ''; this.loginLoading = true;
@@ -106,19 +117,22 @@ function app() {
       if (!this.accounts.length) return;
       this.modelsLoading = true;
       try {
-        // 并发拉取所有账户的 /v1/models，互不阻塞
+        // 并发拉取所有账户的 /v1/models，互不阻塞；以 account.id 为 key 聚合
         const results = await Promise.all(
           this.accounts.map(a =>
             fetch(`/api/accounts/${a.id}/models`)
-              .then(r => r.ok ? r.json() : { ...a, models: [], live_error: `HTTP ${r.status}` })
-              .catch(e => ({ ...a, models: [], live_error: e.message }))
+              .then(r => r.ok ? r.json() : { account_id: a.id, models: [], live_error: `HTTP ${r.status}` })
+              .catch(e => ({ account_id: a.id, models: [], live_error: e.message }))
           )
         );
         const byId = {};
         for (const res of results) {
-          byId[res.account_id] = res;
+          // 后端返回 account_id；失败兜底对象也已带 account_id，统一用它
+          const key = res.account_id;
+          if (key !== undefined && key !== null) byId[key] = res;
         }
-        this.modelsByAccount = byId;
+        // 整体替换触发 Alpine 响应式更新
+        this.modelsByAccount = { ...byId };
       } finally { this.modelsLoading = false; }
     },
     async createAccount() {
@@ -155,6 +169,97 @@ function app() {
         body: JSON.stringify({ enabled: !acc.enabled }),
       });
       await this.loadAccounts();
+    },
+    async loadStream() {
+      this.stream.loading = true; this.stream.error = '';
+      try {
+        const r = await fetch(`/api/history?days=${this.stream.days}`).then(r => r.json());
+        this.stream.keys = r.keys || [];
+        this.stream.series = r.series || [];
+        this.stream.hasWindowAccounts = r.has_window_accounts !== false;
+        this.stream.loaded = true;
+        this.$nextTick(() => this.renderStream());
+      } catch (e) { this.stream.error = e.message; }
+      finally { this.stream.loading = false; }
+    },
+    renderStream() {
+      const svgEl = this.$refs.streamchart;
+      if (!svgEl) return;
+
+      // d3 未加载（CDN 失败）：显示降级提示，不报错
+      if (typeof d3 === 'undefined') {
+        svgEl.innerHTML = '<text x="50%" y="50%" text-anchor="middle" fill="#6B6B66" font-size="13">图表库加载失败，请检查网络后刷新页面</text>';
+        return;
+      }
+
+      if (!this.stream.series.length) return;
+
+      const keys = this.stream.keys;
+      const data = this.stream.series.map(d => ({
+        date: new Date(d.date.replace(' ', 'T')),
+        ...Object.fromEntries(keys.map(k => [k, +d[k] || 0])),
+      }));
+
+      const W = svgEl.clientWidth || 800, H = svgEl.clientHeight || 360;
+      const margin = { top: 28, right: 16, bottom: 40, left: 48 };
+      const w = W - margin.left - margin.right, h = H - margin.top - margin.bottom;
+
+      d3.select(svgEl).selectAll('*').remove();
+      const svg = d3.select(svgEl)
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+      const x = d3.scaleTime().domain(d3.extent(data, d => d.date)).range([0, w]);
+      const y = d3.scaleLinear().range([h, 0]);
+
+      // stack + wiggle（居中流动）
+      const stack = d3.stack().keys(keys).offset(d3.stackOffsetWiggle).order(d3.stackOrderInsideOut);
+      const series = stack(data);
+      y.domain([
+        d3.min(series, s => d3.min(s, d => d[0])),
+        d3.max(series, s => d3.max(s, d => d[1])),
+      ]);
+
+      const palette = ['#0F766E', '#B45309', '#2563EB', '#7C3AED', '#DB2777', '#65A30D', '#0891B2', '#CA8A04'];
+      const color = (i) => palette[i % palette.length];
+
+      const area = d3.area()
+        .x(d => x(d.data.date))
+        .y0(d => y(d[0]))
+        .y1(d => y(d[1]))
+        .curve(d3.curveCardinal);
+
+      svg.append('g').selectAll('path')
+        .data(series)
+        .join('path')
+        .attr('fill', (_, i) => color(i))
+        .attr('fill-opacity', 0.78)
+        .attr('stroke', '#FAFAF7')
+        .attr('stroke-width', 0.5)
+        .attr('d', area)
+        .style('cursor', 'pointer')
+        .append('title')
+        .text((d, i) => `${keys[i]}`);
+
+      // X 轴：根据跨度动态选格式（≤2天显时分，否则日期）
+      const spanHours = (data[data.length - 1].date - data[0].date) / 3600000;
+      const fmt = spanHours <= 48 ? d3.timeFormat('%m-%d %H:%M') : d3.timeFormat('%m-%d');
+      const tickCount = Math.min(8, Math.max(3, Math.floor(w / 90)));
+      svg.append('g').attr('transform', `translate(0,${h})`)
+        .call(d3.axisBottom(x).ticks(tickCount).tickFormat(fmt))
+        .call(g => g.select('.domain').remove())
+        .call(g => g.selectAll('.tick line').remove())
+        .selectAll('text').attr('fill', '#6B6B66').style('font-family', 'Space Mono, monospace').style('font-size', '10px');
+
+      // 图例（顶部，自动换行）
+      const legend = svg.append('g').attr('transform', `translate(0, -16)`);
+      let lx = 0;
+      keys.forEach((k, i) => {
+        const item = legend.append('g').attr('transform', `translate(${lx},0)`);
+        item.append('rect').attr('width', 10).attr('height', 10).attr('fill', color(i));
+        item.append('text').attr('x', 14).attr('y', 9).attr('fill', '#6B6B66').style('font-size', '11px').text(k);
+        lx += 20 + (k.length * 7) + 12;
+      });
     },
     async loadTrend() {
       if (!this.trend.accountId) { this.trend.points = []; return; }
