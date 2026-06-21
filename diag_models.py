@@ -1,10 +1,16 @@
-"""诊断脚本：用真实 key 测试各家动态模型列表拉取 + 合并静态能力。
+"""诊断脚本：用真实 key 测试各家动态模型列表拉取（纯动态，无静态表）。
 
 用法：
   set DEEPSEEK_API_KEY=sk-xxx
   set GLM_API_KEY=xxx
   set KIMI_API_KEY=sk-xxx
   set MINIMAX_API_KEY=sk-xxx
+  python diag_models.py
+
+也可测试自定义 API（OpenAI/Anthropic 兼容）：
+  set CUSTOM_BASE_URL=https://api.your-relay.com
+  set CUSTOM_API_KEY=sk-xxx
+  set CUSTOM_API_FORMAT=openai   （或 anthropic）
   python diag_models.py
 """
 import asyncio
@@ -23,43 +29,50 @@ def _mask(key: str) -> str:
     return key[:4] + "***" + key[-4:]
 
 
-async def test_one(name: str, provider: str, key: str):
+async def test_builtin(name: str, provider: str, key: str):
     print(f"\n{'='*60}")
     print(f"【{name}】  key={_mask(key)}")
-    print('='*60)
+    print('=' * 60)
     if not key:
-        print("⚠️  未设置环境变量，跳过（仅显示静态表）")
-        static = models_meta.MODELS.get(provider, [])
-        print(f"静态表 {len(static)} 个模型：{[m['id'] for m in static]}")
+        print("⚠️  未设置环境变量，跳过")
         return
+    await _probe(provider, key)
+
+
+async def test_custom():
+    base = os.environ.get("CUSTOM_BASE_URL", "").strip()
+    key = os.environ.get("CUSTOM_API_KEY", "").strip()
+    fmt = os.environ.get("CUSTOM_API_FORMAT", "openai").strip().lower()
+    if not base or not key:
+        return
+    print(f"\n{'='*60}")
+    print(f"【自定义 API · {fmt}】  base={base}  key={_mask(key)}")
+    print('=' * 60)
+    await _probe("openai_proxy", key, base_url=base, api_format=fmt)
+
+
+async def _probe(provider: str, key: str, **config):
     try:
-        live = await registry.run_list_models(provider, key)
+        live = await registry.run_list_models(provider, key, **config)
         print(f"✅ 动态拉取成功，共 {len(live)} 个模型：")
         for m in live:
             ctx = getattr(m, "context_length", None)
-            ctx_str = f"{ctx//1000}K" if ctx else "-"
-            print(f"   - {m.id:30s}  ctx={ctx_str:8s}  owned_by={getattr(m,'owned_by','-')}")
-        merged = models_meta.merge_live_with_static(provider, live)
-        known = sum(1 for m in merged if m.get("thinking") != "unknown")
-        print(f"\n合并后 {len(merged)} 个模型（{known} 个有完整能力信息，{len(merged)-known} 个待补充）")
-    except Exception as e:
+            ctx_str = f"{ctx // 1000}K" if ctx else "-"
+            print(f"   - {m.id:30s}  ctx={ctx_str:8s}  owned_by={getattr(m, 'owned_by', '-')}")
+        normalized = models_meta.normalize_live_models(live)
+        with_ctx = sum(1 for m in normalized if m["context"])
+        print(f"\nnormalize 后 {len(normalized)} 个（{with_ctx} 个有上下文，{len(normalized) - with_ctx} 个上下文未公开）")
+    except Exception as e:  # noqa: BLE001
         print(f"❌ 拉取失败: {e}")
-        static = models_meta.MODELS.get(provider, [])
-        print(f"   回退到静态表 {len(static)} 个：{[m['id'] for m in static]}")
 
 
 async def main():
-    keys = [
-        ("DeepSeek", "deepseek", os.environ.get("DEEPSEEK_API_KEY", "")),
-        ("GLM", "glm", os.environ.get("GLM_API_KEY", "")),
-        ("Kimi", "kimi", os.environ.get("KIMI_API_KEY", "")),
-        ("MiniMax", "minimax", os.environ.get("MINIMAX_API_KEY", "")),
-    ]
-    for name, provider, key in keys:
-        await test_one(name, provider, key)
-    print(f"\n{'='*60}")
-    print("完成。")
-    print('='*60)
+    await test_builtin("DeepSeek", "deepseek", os.environ.get("DEEPSEEK_API_KEY", ""))
+    await test_builtin("GLM", "glm", os.environ.get("GLM_API_KEY", ""))
+    await test_builtin("Kimi", "kimi", os.environ.get("KIMI_API_KEY", ""))
+    await test_builtin("MiniMax", "minimax", os.environ.get("MINIMAX_API_KEY", ""))
+    await test_custom()
+    print(f"\n{'='*60}\n完成。\n{'='*60}")
 
 
 if __name__ == "__main__":
