@@ -266,22 +266,23 @@ def test_minimax_no_general():
 
 # ============ OpenAI 兼容中转站 ============
 
-def test_proxy_normalize_base_variants():
-    """base_url 各种写法都应规范化到一致的 (root, v1)。"""
+def test_proxy_base_root_user_controlled():
+    """base_url 用户填什么用什么，不臵测 /v1。"""
     from app.providers import openai_proxy
-    assert openai_proxy._normalize_base("https://x.com") == ("https://x.com", "https://x.com/v1")
-    assert openai_proxy._normalize_base("https://x.com/") == ("https://x.com", "https://x.com/v1")
-    assert openai_proxy._normalize_base("https://x.com/v1") == ("https://x.com", "https://x.com/v1")
-    assert openai_proxy._normalize_base("https://x.com/v1/") == ("https://x.com", "https://x.com/v1")
+    assert openai_proxy._base_root("https://x.com") == "https://x.com"
+    assert openai_proxy._base_root("https://x.com/") == "https://x.com"
+    assert openai_proxy._base_root("https://x.com/v1") == "https://x.com/v1"
+    assert openai_proxy._base_root("https://x.com/v1/") == "https://x.com/v1"
+    assert openai_proxy._base_root("https://x.com/api/v1") == "https://x.com/api/v1"
 
 
-def test_proxy_normalize_base_empty():
+def test_proxy_base_root_empty():
     """空字符串应抛 AdapterError。"""
     from app.providers import openai_proxy
     from app.providers.base import AdapterError
     raised = False
     try:
-        openai_proxy._normalize_base("")
+        openai_proxy._base_root("")
     except AdapterError:
         raised = True
     assert raised, "空 base_url 应抛 AdapterError"
@@ -351,10 +352,13 @@ def test_proxy_parse_user_self_no_quota():
     assert openai_proxy._parse_user_self({}) is None
 
 
-def test_proxy_normalize_base_case_insensitive():
-    """/V1 大写也能识别（少数中转站文档写大写）。"""
+def test_proxy_domain_root_strips_v1():
+    """_domain_root 去末尾 /v1（含大小写），供 user/self 用。"""
     from app.providers import openai_proxy
-    assert openai_proxy._normalize_base("https://x.com/V1") == ("https://x.com", "https://x.com/V1")
+    assert openai_proxy._domain_root("https://x.com/v1") == "https://x.com"
+    assert openai_proxy._domain_root("https://x.com/V1") == "https://x.com"
+    assert openai_proxy._domain_root("https://x.com/api/v1") == "https://x.com/api"
+    assert openai_proxy._domain_root("https://x.com") == "https://x.com"
 
 
 if __name__ == "__main__":
