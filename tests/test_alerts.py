@@ -148,7 +148,7 @@ def test_custom_threshold_per_account():
     print("[PASS] 每账户自定义阈值生效")
 
 
-async def test_daily_report():
+async def _daily_report_async():
     """每日报告：汇总各账户状态。"""
     _setup()
     enc = crypto.encrypt("sk-test")
@@ -170,6 +170,11 @@ async def test_daily_report():
     print("[PASS] 每日报告生成正确（含余额合计）")
 
 
+def test_daily_report():
+    """同步包装（pytest 直接可跑，无需 pytest-asyncio）。"""
+    asyncio.run(_daily_report_async())
+
+
 def test_notify_config_api_keys():
     """验证通知配置 key 白名单完整。"""
     from app.main import _NOTIFY_KEYS
@@ -188,6 +193,6 @@ if __name__ == "__main__":
     test_cooldown_prevents_spam()
     test_custom_threshold_per_account()
     test_notify_config_api_keys()
-    asyncio.run(test_daily_report())
+    test_daily_report()
     _cleanup_accounts()
     print("\n=== 阶段4 全部通过 ===")

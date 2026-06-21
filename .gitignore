@@ -47,3 +47,6 @@ cookie.txt
 test_output.txt
 *.output.txt
 diag_output*
+
+# Windows 保留设备名（shell 误重定向会生成空文件）
+nul

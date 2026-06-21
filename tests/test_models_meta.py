@@ -1,33 +1,13 @@
-"""模型能力表测试。"""
+"""模型能力元数据测试（纯动态版）。
+
+静态表已移除，本文件验证：
+  - list_models 返回空占位（接口兼容，前端不再依赖）
+  - format_context 格式化正确
+"""
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-
-def test_all_providers_have_models():
-    from app import models_meta
-    for p in ["deepseek", "glm", "kimi", "minimax"]:
-        assert p in models_meta.MODELS, f"{p} 缺失"
-        assert len(models_meta.MODELS[p]) > 0, f"{p} 没有模型"
-    print("[PASS] 4 家都有模型数据")
-
-
-def test_each_model_has_required_fields():
-    from app import models_meta
-    required = {"id", "name", "context", "thinking", "notes", "source"}
-    valid_thinking = ("supported", "unsupported", "default_on", "supported_param_unknown", "unknown")
-    for provider, models in models_meta.MODELS.items():
-        for m in models:
-            missing = required - set(m.keys())
-            assert not missing, f"{provider}/{m.get('id')} 缺字段: {missing}"
-            # thinking 值校验
-            assert m["thinking"] in valid_thinking, \
-                f"{m['id']} thinking 值非法: {m['thinking']}"
-            # 明确"支持"思考的必须给参数示例；参数未公开的用 supported_param_unknown
-            if m["thinking"] == "supported":
-                assert m.get("thinking_param"), f"{m['id']} 标 supported 但没给 thinking_param（若参数未知请用 supported_param_unknown）"
-    print("[PASS] 所有模型字段完整且 thinking 值合法")
 
 
 def test_context_formatting():
@@ -40,34 +20,34 @@ def test_context_formatting():
     print("[PASS] 上下文长度格式化正确")
 
 
-def test_list_models_filter():
+def test_list_models_returns_empty():
+    """静态表已移除，list_models 返回空占位。"""
     from app import models_meta
-    # 单家过滤
     r = models_meta.list_models("glm")
-    assert "glm" in r["models"]
-    assert "deepseek" not in r["models"]
-    assert r["last_updated"]
-    # 全部
+    assert r["models"] == {}
     r2 = models_meta.list_models()
-    assert len(r2["models"]) == 4
-    print("[PASS] list_models 过滤正确")
+    assert r2["models"] == {}
+    print("[PASS] list_models 返回空占位（纯动态）")
 
 
-def test_context_values_reasonable():
-    """上下文长度应在合理范围（防止写错数量级）。"""
+def test_no_static_models_attr():
+    """确认 MODELS 静态字典已彻底移除。"""
     from app import models_meta
-    for provider, models in models_meta.MODELS.items():
-        for m in models:
-            if m["context"] is not None:
-                assert 1000 <= m["context"] <= 10_000_000, \
-                    f"{m['id']} 上下文 {m['context']} 不在合理范围"
-    print("[PASS] 上下文长度数值合理")
+    assert not hasattr(models_meta, "MODELS"), "models_meta.MODELS 应已移除"
+    print("[PASS] MODELS 静态表已移除")
+
+
+def test_no_merge_function():
+    """确认 merge_live_with_static 已被 normalize_live_models 取代。"""
+    from app import models_meta
+    assert not hasattr(models_meta, "merge_live_with_static")
+    assert hasattr(models_meta, "normalize_live_models")
+    print("[PASS] normalize_live_models 替代 merge_live_with_static")
 
 
 if __name__ == "__main__":
-    test_all_providers_have_models()
-    test_each_model_has_required_fields()
     test_context_formatting()
-    test_list_models_filter()
-    test_context_values_reasonable()
-    print("\n=== 模型能力表测试全部通过 ===")
+    test_list_models_returns_empty()
+    test_no_static_models_attr()
+    test_no_merge_function()
+    print("\n=== 模型元数据测试全部通过 ===")

@@ -93,7 +93,7 @@ def test_cleanup_old_snapshots():
     print(f"[PASS] 快照清理正确（删除了 {deleted} 条 30 天前的）")
 
 
-async def test_refresh_all_accounts_resilient():
+async def _refresh_all_accounts_resilient_async():
     """验证 refresh_all_accounts 对单个失败 account 不崩溃。
 
     用一个假 provider 的 account，查询会失败但不影响整体。
@@ -103,7 +103,7 @@ async def test_refresh_all_accounts_resilient():
     enc = crypto.encrypt("sk-definitely-invalid-key-xyz")
     aid = db.create_account("deepseek", "假key测试", enc)
     try:
-        # 这会真实调用 DeepSeek API 并失败（401），但函数不应抛异常
+        # 这会真实调用 DeepSeek API 并失败（401 或网络错误），但函数不应抛异常
         await scheduler.refresh_all_accounts()
         # 失败的 snapshot 也应被记录（raw_error 非空）
         snap = db.latest_snapshot(aid)
@@ -112,6 +112,11 @@ async def test_refresh_all_accounts_resilient():
         print(f"[PASS] refresh_all_accounts 容错正确（假 key 失败被记录: {snap['raw_error'][:60]}...）")
     finally:
         db.delete_account(aid)
+
+
+def test_refresh_all_accounts_resilient():
+    """同步包装（pytest 直接可跑，无需 pytest-asyncio）。"""
+    asyncio.run(_refresh_all_accounts_resilient_async())
 
 
 def test_scheduler_triggers():
@@ -128,5 +133,5 @@ if __name__ == "__main__":
     test_history_points_conversion_window()
     test_cleanup_old_snapshots()
     test_scheduler_triggers()
-    asyncio.run(test_refresh_all_accounts_resilient())
+    test_refresh_all_accounts_resilient()
     print("\n=== 阶段3 全部通过 ===")
