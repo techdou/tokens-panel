@@ -246,6 +246,134 @@ def test_query_balance_never_negative():
     assert result.balance == 0.0  # max(0, 10-50) = 0
 
 
+# ============ window 型（Token Plan）============
+
+def test_account_type_defaults_to_balance():
+    """无 account_type 字段 → 默认 balance（向后兼容老账户）。"""
+    assert openai_proxy._account_type({}) == "balance"
+    assert openai_proxy._account_type({"account_type": ""}) == "balance"
+
+
+def test_account_type_invalid_falls_back():
+    """非法值 → 回退 balance。"""
+    assert openai_proxy._account_type({"account_type": "something"}) == "balance"
+
+
+def test_window_query_no_quota_url():
+    """window 型但没填 quota_url → 提示需填 URL（不报错）。"""
+    result = asyncio.run(openai_proxy.query(
+        "sk-test", base_url="https://x.com/v1", account_type="window",
+    ))
+    assert result.type == "window"
+    assert result.raw_error is not None
+    assert "quota_url" in result.raw_error
+
+
+def test_window_query_glm_format_success():
+    """window 型 + GLM 格式响应 → 正确解析出 5h/每周窗口进度条。"""
+    glm_response = {
+        "success": True,
+        "data": {
+            "level": "pro",
+            "limits": [
+                {"type": "TOKENS_LIMIT", "unit": 3, "percentage": 12.5, "nextResetTime": 1719000000000},
+                {"type": "TOKENS_LIMIT", "unit": 6, "percentage": 45.0, "nextResetTime": 1719600000000},
+            ],
+        },
+    }
+
+    async def fake_http_get(url, headers):
+        return glm_response
+
+    with patch("app.providers.openai_proxy.http_get", new=fake_http_get):
+        result = asyncio.run(openai_proxy.query(
+            "sk-test", base_url="https://x.com/v1",
+            account_type="window", quota_url="https://x.com/api/monitor/usage/quota/limit",
+        ))
+    assert result.type == "window"
+    assert result.raw_error is None
+    assert result.plan_level == "pro"
+    assert len(result.tiers) == 2
+    # 5h 窗口 12.5%
+    five_h = [t for t in result.tiers if t.type.value == "five_hour"][0]
+    assert five_h.used_percent == 12.5
+    assert five_h.remaining_percent == 87.5
+    # 每周窗口 45%
+    weekly = [t for t in result.tiers if t.type.value == "weekly"][0]
+    assert weekly.used_percent == 45.0
+    assert weekly.resets_at is not None
+
+
+def test_window_query_unit_as_string():
+    """unit 字段兼容字符串（部分中转站返回 "3"/"6" 而非 int）。"""
+    response = {
+        "success": True,
+        "data": {"limits": [
+            {"type": "TOKENS_LIMIT", "unit": "3", "percentage": 20.0},
+            {"type": "TOKENS_LIMIT", "unit": "6", "percentage": 60.0},
+        ]},
+    }
+    async def fake_http_get(url, headers):
+        return response
+    with patch("app.providers.openai_proxy.http_get", new=fake_http_get):
+        result = asyncio.run(openai_proxy.query(
+            "sk-test", base_url="https://x.com/v1",
+            account_type="window", quota_url="https://x.com/q",
+        ))
+    assert result.raw_error is None
+    assert len(result.tiers) == 2
+    assert result.tiers[0].type.value == "five_hour"
+    assert result.tiers[1].type.value == "weekly"
+
+
+def test_window_query_no_tokens_limit():
+    """window 型 + 响应无 TOKENS_LIMIT → 提示端点 URL 可能不对。"""
+    response = {"success": True, "data": {"limits": []}}
+
+    async def fake_http_get(url, headers):
+        return response
+
+    with patch("app.providers.openai_proxy.http_get", new=fake_http_get):
+        result = asyncio.run(openai_proxy.query(
+            "sk-test", base_url="https://x.com/v1",
+            account_type="window", quota_url="https://x.com/wrong",
+        ))
+    assert result.type == "window"
+    assert result.raw_error is not None
+    assert "TOKENS_LIMIT" in result.raw_error
+
+
+def test_window_query_business_error():
+    """window 型 + success:false → 显示业务错误。"""
+    response = {"success": False, "msg": "key 已过期"}
+
+    async def fake_http_get(url, headers):
+        return response
+
+    with patch("app.providers.openai_proxy.http_get", new=fake_http_get):
+        result = asyncio.run(openai_proxy.query(
+            "sk-test", base_url="https://x.com/v1",
+            account_type="window", quota_url="https://x.com/q",
+        ))
+    assert result.type == "window"
+    assert "过期" in result.raw_error
+
+
+def test_window_query_http_error():
+    """window 型 + HTTP 错误 → 显示错误。"""
+    async def fake_http_get(url, headers):
+        raise AdapterError("HTTP 401")
+
+    with patch("app.providers.openai_proxy.http_get", new=fake_http_get):
+        result = asyncio.run(openai_proxy.query(
+            "sk-test", base_url="https://x.com/v1",
+            account_type="window", quota_url="https://x.com/q",
+        ))
+    assert result.type == "window"
+    assert result.raw_error is not None
+    assert "401" in result.raw_error
+
+
 # ============ api_format 区分 ============
 
 def test_query_anthropic_format_no_balance_query():

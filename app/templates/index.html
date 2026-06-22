@@ -99,6 +99,21 @@
     .row-item { transition: background-color .15s ease, transform .15s ease; }
     .row-item:hover { background-color: rgba(15,118,110,0.035); }
 
+    /* 账户卡片：白底圆角 + 轻阴影 + hover 微抬升（在纸色页面上凸显） */
+    .account-card {
+      background: #FFFFFF;
+      border: 1px solid #E6E4DD;
+      border-radius: 10px;
+      padding: 1.1rem 1.25rem;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 1px 3px rgba(0,0,0,0.02);
+      transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+    }
+    .account-card:hover {
+      box-shadow: 0 4px 12px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.03);
+      transform: translateY(-1px);
+      border-color: rgba(15,118,110,0.25);
+    }
+
     /* 导航下划线滑入（PC） */
     .nav-link { position: relative; }
     .nav-link::after {
@@ -183,7 +198,7 @@
             <nav class="hidden md:flex items-center gap-6 ml-3">
               <button @click="tab='overview'" class="nav-link text-sm pb-1 transition-colors"
                       :class="tab==='overview' ? 'active text-emerald2' : 'text-sub hover:text-ink'">总览</button>
-              <button @click="tab='trend'; loadStream(); loadTrend()" class="nav-link text-sm pb-1 transition-colors"
+              <button @click="tab='trend'; loadHeatmap(); loadTrend()" class="nav-link text-sm pb-1 transition-colors"
                       :class="tab==='trend' ? 'active text-emerald2' : 'text-sub hover:text-ink'">趋势</button>
               <button @click="tab='models'; loadModels()" class="nav-link text-sm pb-1 transition-colors"
                       :class="tab==='models' ? 'active text-emerald2' : 'text-sub hover:text-ink'">模型</button>
@@ -236,21 +251,21 @@
             <p class="text-[12px] uppercase tracking-ledger text-sub tabular" x-show="accounts.length">共 <span x-text="accounts.length"></span> 项</p>
           </div>
 
-          <!-- 账户列表（编号行项目） -->
-          <div class="hairline-t hairline-b stagger" x-show="accounts.length">
+          <!-- 账户列表（卡片网格：≥1024px 两列，<1024px 单列） -->
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 stagger" x-show="accounts.length">
             <template x-for="(acc, idx) in accounts" :key="acc.id">
-              <div class="row-item hairline-b last:border-b-0 px-1 md:px-2"
-                   :class="acc.latest?.raw_error ? 'border-l-2 border-l-brick' : ''">
+              <div class="account-card group"
+                   :class="acc.latest?.raw_error ? 'ring-1 ring-brick/30' : ''">
 
-                <div class="py-5 md:py-6 flex items-start gap-4 md:gap-6">
+                <div class="flex items-start gap-4">
                   <!-- 编号 -->
-                  <span class="index-no text-[12px] text-sub/70 pt-1 w-6 shrink-0"
+                  <span class="index-no text-[12px] text-sub/70 pt-1.5 w-6 shrink-0"
                         x-text="String(idx+1).padStart(2,'0')"></span>
 
-                  <!-- 左：名称 + provider + 详情 -->
+                  <!-- 主体：名称 + provider + 详情 -->
                   <div class="flex-1 min-w-0">
-                    <!-- 名称行：左名称 + 右余额数字同基线（消除中间空隙） -->
-                    <div class="flex items-baseline justify-between gap-4 flex-wrap">
+                    <!-- 名称行：左名称 + 右余额数字同基线 -->
+                    <div class="flex items-baseline justify-between gap-3 flex-wrap">
                       <div class="flex items-center gap-2.5 flex-wrap min-w-0">
                         <p class="font-medium text-base md:text-[17px] truncate" x-text="acc.display_name"></p>
                         <span class="inline-block w-1.5 h-1.5 rounded-full shrink-0"
@@ -259,7 +274,7 @@
                               :class="acc.enabled ? 'text-emerald2' : 'text-sub/60'"
                               x-text="acc.enabled ? '启用' : '停用'"></span>
                       </div>
-                      <!-- 余额型：数字紧贴名称行右侧，不另起一栏 -->
+                      <!-- 余额型：数字紧贴名称行右侧 -->
                       <template x-if="acc.latest && !acc.latest.raw_error && acc.latest.type==='balance'">
                         <p class="font-serif text-2xl md:text-3xl font-light tabular leading-none shrink-0">
                           <span class="text-sub text-lg align-top" x-text="currencySymbol(acc.latest.currency)"></span><span x-text="formatBalance(acc.latest.balance)"></span>
@@ -271,7 +286,7 @@
 
                     <!-- 窗口型进度条 -->
                     <template x-if="acc.latest && !acc.latest.raw_error && acc.latest.type==='window' && acc.latest.tiers">
-                      <div class="mt-4 space-y-2.5 max-w-md">
+                      <div class="mt-4 space-y-2.5">
                         <p x-show="acc.latest.plan_level" class="text-[12px] text-sub">
                           套餐 <span class="font-mono text-ink/80 uppercase" x-text="acc.latest.plan_level"></span>
                         </p>
@@ -372,6 +387,34 @@
                 <p class="text-[12px] text-sub/70 mt-1.5">
                   完整 API 根地址，系统直接在其后拼 <code class="font-mono text-emerald2">/models</code>。
                   <span class="text-ember">需含到 /v1 等版本前缀就自己带上</span>——系统不再自动补全。
+                </p>
+              </div>
+              <div class="md:col-span-2" x-show="form.provider === 'openai_proxy'" x-cloak>
+                <label class="block text-[12px] uppercase tracking-ledger text-sub mb-2">账户类型</label>
+                <div class="flex items-center gap-6 mt-1">
+                  <label class="flex items-center gap-2 cursor-pointer text-sm">
+                    <input type="radio" x-model="form.config.account_type" value="balance" class="accent-emerald2">
+                    <span>余额型</span>
+                    <span class="text-[12px] text-sub/70">(按金额扣费)</span>
+                  </label>
+                  <label class="flex items-center gap-2 cursor-pointer text-sm">
+                    <input type="radio" x-model="form.config.account_type" value="window" class="accent-emerald2">
+                    <span>Token Plan</span>
+                    <span class="text-[12px] text-sub/70">(窗口型，按已用%)</span>
+                  </label>
+                </div>
+                <p class="text-[12px] text-sub/70 mt-2">
+                  余额型查标准 billing 接口；Token Plan 查窗口用量，需在下方填用量端点 URL。
+                </p>
+              </div>
+              <div class="md:col-span-2" x-show="form.provider === 'openai_proxy' && form.config.account_type === 'window'" x-cloak>
+                <label class="block text-[12px] uppercase tracking-ledger text-sub mb-2">用量查询端点（quota_url）</label>
+                <input x-model="form.config.quota_url"
+                       placeholder="https://api.your-relay.com/api/monitor/usage/quota/limit"
+                       class="field-line w-full font-mono text-sm">
+                <p class="text-[12px] text-sub/70 mt-1.5">
+                  Token Plan 的用量查询接口完整地址。系统用 <span class="text-emerald2">GLM Coding Plan 格式</span>解析
+                  （<code class="font-mono">{data:{limits:[{type:TOKENS_LIMIT,percentage,...}]}}</code>）——多数 Token Plan 中转站复刻此格式。
                 </p>
               </div>
               <div class="md:col-span-2">
@@ -512,34 +555,34 @@
 
         <!-- ============ 趋势 ============ -->
         <div x-show="tab==='trend'" class="space-y-10">
-          <!-- 河流图：全部窗口型账户已用%堆叠流动 -->
+          <!-- 热力图：全部窗口型账户已用%时间分布 -->
           <div>
             <div class="flex items-end justify-between mb-2 flex-wrap gap-2">
               <div>
                 <p class="text-[12px] uppercase tracking-ledger text-sub mb-2">趋势 / Trend</p>
-                <h2 class="font-serif text-xl md:text-2xl font-medium">用量河流图</h2>
+                <h2 class="font-serif text-xl md:text-2xl font-medium">用量热力图</h2>
               </div>
               <div class="flex items-center gap-3">
-                <select x-model="stream.days" @change="loadStream()" class="field-line bg-transparent text-sm">
+                <select x-model="heatmap.days" @change="loadHeatmap()" class="field-line bg-transparent text-sm">
                   <option value="1">最近 1 天</option>
                   <option value="7">最近 7 天</option>
                   <option value="30">最近 30 天</option>
                   <option value="90">最近 90 天</option>
                 </select>
-                <button @click="loadStream()" :disabled="stream.loading"
+                <button @click="loadHeatmap()" :disabled="heatmap.loading"
                         class="text-sm tracking-ledger uppercase border border-line px-4 py-2 hover:border-emerald2 hover:text-emerald2 transition-colors disabled:opacity-40">
-                  <span x-show="!stream.loading">刷新</span>
-                  <span x-show="stream.loading" class="tabular">加载中…</span>
+                  <span x-show="!heatmap.loading">刷新</span>
+                  <span x-show="heatmap.loading" class="tabular">加载中…</span>
                 </button>
               </div>
             </div>
             <p class="text-sm text-sub mb-5 max-w-2xl">
-              各窗口型账户（GLM/Kimi/MiniMax）已用百分比的堆叠流动。<span class="text-ember">居中流动（wiggle）形态，色带宽度即该账户当时的用量。</span>
+              各窗口型账户（GLM/Kimi/MiniMax）已用百分比的时间分布。<span class="text-ember">每行一个账户，每列一个时间点，颜色越深用量越高。</span>鼠标悬停看具体数值。
             </p>
-            <p x-show="stream.error" class="text-sm text-brick mb-4" x-text="stream.error"></p>
-            <p x-show="!stream.loading && stream.loaded && !stream.hasWindowAccounts" class="text-sm text-sub/60 py-12 text-center italic">尚无窗口型账户（GLM/Kimi/MiniMax），添加后即可看到用量流动</p>
-            <p x-show="!stream.loading && stream.loaded && stream.hasWindowAccounts && stream.series.length === 0" class="text-sm text-sub/60 py-12 text-center italic">暂无历史数据（多刷新几次或等定时任务跑一会儿）</p>
-            <svg x-ref="streamchart" x-show="stream.series.length" class="w-full h-[320px] md:h-[400px]"></svg>
+            <p x-show="heatmap.error" class="text-sm text-brick mb-4" x-text="heatmap.error"></p>
+            <p x-show="!heatmap.loading && heatmap.loaded && !heatmap.hasWindowAccounts" class="text-sm text-sub/60 py-12 text-center italic">尚无窗口型账户（GLM/Kimi/MiniMax），添加后即可看到用量分布</p>
+            <p x-show="!heatmap.loading && heatmap.loaded && heatmap.hasWindowAccounts && heatmap.series.length === 0" class="text-sm text-sub/60 py-12 text-center italic">暂无历史数据（多刷新几次或等定时任务跑一会儿）</p>
+            <svg x-ref="heatmap" x-show="heatmap.series.length" class="w-full"></svg>
           </div>
 
           <!-- 单账户折线（保留原有） -->
@@ -701,7 +744,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
             <span class="text-[12px] tracking-ledger">总览</span>
           </button>
-          <button @click="tab='trend'; loadStream(); loadTrend()"
+          <button @click="tab='trend'; loadHeatmap(); loadTrend()"
                   class="flex flex-col items-center justify-center gap-1 transition-colors"
                   :class="tab==='trend' ? 'text-emerald2' : 'text-sub/60'">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>

@@ -1,33 +1,32 @@
 """自定义 API（OpenAI / Anthropic 兼容）查询。
 
-支持两种 API 格式，由 account 的 config_json 里 `api_format` 字段决定（默认 openai）：
-  - openai    ：OpenAI 兼容（含 OneAPI / NewAPI 等中转站）。认证用 `Authorization: Bearer {key}`。
-  - anthropic ：Anthropic 兼容（官方或代理）。认证用 `x-api-key: {key}` + `anthropic-version` 头。
+两种 API 格式（config.api_format，默认 openai）：
+  - openai    ：OpenAI 兼容（OneAPI / NewAPI 等）。认证 `Authorization: Bearer {key}`。
+  - anthropic ：Anthropic 兼容。认证 `x-api-key: {key}` + `anthropic-version`。
+
+两种账户类型（config.account_type，默认 balance）：
+  - balance   ：余额型，按金额扣费。查 /dashboard/billing/* 或 /api/user/self。
+  - window    ：Token Plan（窗口型），按 5h/每周窗口算已用%。
+                需额外填 config.quota_url（用量查询端点），用 GLM 的 quota/limit 格式解析。
+                多数 Token Plan 中转站复刻 GLM Coding Plan 的响应结构。
 
 base_url 语义（用户完全自主）：
-  用户填什么就用什么，系统【不再自动追加 /v1 或任何后缀】。仅去掉尾部斜杠。
-  端点拼接规则（base 指用户填的 base_url）：
-    模型列表    ：GET {base}/models
-    余额-路径1  ：GET {base}/dashboard/billing/subscription、{base}/dashboard/billing/usage
-    余额-路径2  ：GET {base 去掉末尾 /v1 后的域名根}/api/user/self（NewAPI/OneAPI 原生接口在根域）
-  例：
-    base=https://x.com/v1      → models=https://x.com/v1/models（用户自己填了 /v1）
-    base=https://x.com         → models=https://x.com/models（用户没填就不加）
-    base=https://x.com/api/v1  → models=https://x.com/api/v1/models
+  用户填什么就用什么，不臵测 /v1。仅末尾拼 /models。
+  例：base=https://x.com/v1 → models=https://x.com/v1/models
 
 模型列表（list_models）：两种格式都拉 {base}/models，仅认证头不同。
 
-余额查询（query，仅 openai 格式；anthropic 不查）：
-  作为「尽力而为」尝试：两路都失败时【不报错】，返回 balance=None、无 raw_error，
-  让账户正常存在、模型页能拉模型。成功才填 balance/currency。
+余额查询（query，balance 型，仅 openai 格式）：尽力而为，失败不报错。
+  路径 1：/dashboard/billing/subscription + /dashboard/billing/usage
+  路径 2：{domain}/api/user/self（NewAPI/OneAPI 原生）
+  两路都失败 → balance=None，账户照常供模型拉取。
 
-  路径 1 —— OpenAI 事实标准 dashboard billing：
-    余额 = hard_limit_usd - total_usage/100
-  路径 2 —— NewAPI/OneAPI 原生：data.quota ÷ 500000 = 美元
+Window 查询（query，window 型）：GET {quota_url}，GLM quota/limit 格式解析。
 """
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any
 
 from .base import AdapterError, ProviderResult, _safe_result, http_get
@@ -47,6 +46,12 @@ def _api_format(config: dict[str, Any]) -> str:
     """读取 api_format，默认 openai（向后兼容无此字段的老账户）。"""
     fmt = str(config.get("api_format") or "openai").strip().lower()
     return fmt if fmt in ("openai", "anthropic") else "openai"
+
+
+def _account_type(config: dict[str, Any]) -> str:
+    """读取账户类型，默认 balance（向后兼容老账户）。"""
+    t = str(config.get("account_type") or "balance").strip().lower()
+    return t if t in ("balance", "window") else "balance"
 
 
 def _require_base_url(config: dict[str, Any]) -> str:
@@ -103,9 +108,118 @@ async def list_models(api_key: str, **config: Any) -> list:
     return await fetch_models_openai_compat(f"{base}/models", headers)
 
 
+# ---- window 型（Token Plan）查询 ----
+# 复用 GLM Coding Plan 的 quota/limit 响应格式（多数 token plan 中转站复刻此结构）。
+# GLM 的 unit 字段：3=5小时窗口, 6=每周窗口。
+_UNIT_FIVE_HOUR = 3
+_UNIT_WEEKLY = 6
+
+
+async def _query_window(api_key: str, fmt: str, config: dict[str, Any]) -> ProviderResult:
+    """Token Plan 用量查询：GET {quota_url}，GLM quota/limit 格式解析。"""
+    from .base import Tier, TierType
+    raw: dict[str, Any] | None = None
+    quota_url = str(config.get("quota_url") or "").strip()
+    if not quota_url:
+        return _safe_result(
+            "openai_proxy", DISPLAY_NAME, "window",
+            error="Token Plan 需填写用量查询端点 URL（quota_url）", raw=None,
+        )
+
+    headers = _models_headers(api_key, fmt)
+    headers["Content-Type"] = "application/json"
+    headers["Accept-Language"] = "en-US,en"
+
+    try:
+        raw = await http_get(quota_url, headers)
+    except AdapterError as e:
+        log.warning("Token Plan 用量查询失败: %s", e)
+        return _safe_result("openai_proxy", DISPLAY_NAME, "window", error=str(e), raw=raw)
+    except Exception as e:  # noqa: BLE001
+        log.exception("Token Plan 用量查询异常")
+        return _safe_result("openai_proxy", DISPLAY_NAME, "window", error=f"未知错误: {e}", raw=raw)
+
+    # 解析 GLM quota/limit 格式
+    if raw.get("success") is False or (
+        raw.get("success") is None and raw.get("code") not in (None, 200)
+    ):
+        msg = raw.get("msg") or raw.get("message") or "Token Plan 业务错误"
+        return _safe_result("openai_proxy", DISPLAY_NAME, "window", error=str(msg), raw=raw)
+
+    data = raw.get("data") or {}
+    limits = data.get("limits") or []
+    level = data.get("level")
+
+    tiers: list[Tier] = []
+    five_hour_done = weekly_done = False
+    for item in limits:
+        item_type = str(item.get("type") or "").upper()
+        if item_type != "TOKENS_LIMIT":
+            continue
+        # unit 兼容 int / str（GLM 原生 int，部分中转站返回字符串 "3"/"6"）
+        raw_unit = item.get("unit")
+        try:
+            unit = int(raw_unit) if raw_unit not in (None, "") else None
+        except (TypeError, ValueError):
+            unit = None
+        percentage = _to_float(item.get("percentage"))
+        if percentage is None:
+            continue
+        # 区分窗口（优先 unit，fallback 按 nextResetTime 出现顺序）
+        if unit == _UNIT_FIVE_HOUR and not five_hour_done:
+            tier_type, five_hour_done = TierType.FIVE_HOUR, True
+        elif unit == _UNIT_WEEKLY and not weekly_done:
+            tier_type, weekly_done = TierType.WEEKLY, True
+        elif unit is None and not five_hour_done:
+            tier_type, five_hour_done = TierType.FIVE_HOUR, True
+        elif unit is None and not weekly_done:
+            tier_type, weekly_done = TierType.WEEKLY, True
+        else:
+            continue
+        used = max(0.0, min(100.0, percentage))
+        tiers.append(Tier(
+            type=tier_type,
+            used_percent=used,
+            remaining_percent=100.0 - used,
+            resets_at=_parse_timestamp(item.get("nextResetTime")),
+            level=level,
+        ))
+
+    if not tiers:
+        return _safe_result(
+            "openai_proxy", DISPLAY_NAME, "window",
+            error="响应中未找到 TOKENS_LIMIT 配额项（确认端点 URL 是否正确）", raw=raw,
+        )
+    return _safe_result(
+        "openai_proxy", DISPLAY_NAME, "window",
+        error=None, raw=raw, tiers=tiers, plan_level=level,
+    )
+
+
+def _parse_timestamp(v: Any) -> datetime | None:
+    """兼容毫秒/秒时间戳（GLM 用毫秒）。"""
+    if v is None or v == "":
+        return None
+    try:
+        ms = int(v)
+        if ms < 1_000_000_000_000:
+            ms *= 1000
+        return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
 async def query(api_key: str, **config: Any) -> ProviderResult:
-    # anthropic 格式：无标准余额查询接口，静默提示（不报错）
-    if _api_format(config) == "anthropic":
+    acc_type = _account_type(config)
+    fmt = _api_format(config)
+
+    # ---- window 型（Token Plan）：调 quota_url，GLM 格式解析 ----
+    if acc_type == "window":
+        return await _query_window(api_key, fmt, config)
+
+    # ---- balance 型 ----
+    # anthropic 格式：无标准余额接口，静默提示（不报错）
+    if fmt == "anthropic":
         return _safe_result(
             "openai_proxy", DISPLAY_NAME, "balance",
             error="Anthropic 格式不支持余额查询，请到「模型」页查看可用模型",

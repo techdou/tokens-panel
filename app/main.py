@@ -375,7 +375,7 @@ def api_history(account_id: int, days: int = 7):
 
 @app.get("/api/history", dependencies=[Depends(require_login)])
 def api_history_all(days: int = 7):
-    """返回所有窗口型账户最近 N 天的已用百分比序列，供前端画河流图。
+    """返回所有窗口型账户最近 N 天的已用百分比序列，供前端画热力图。
 
     响应结构（D3 stack 友好的宽格式，按时间桶对齐）：
       {
@@ -397,7 +397,18 @@ def api_history_all(days: int = 7):
 
     def _is_window_account(a: dict) -> bool:
         meta = registry.get_provider_meta(a["provider"])
-        return bool(meta) and meta.get("type") == "window" and a.get("enabled")
+        if not meta or not a.get("enabled"):
+            return False
+        # 内置 provider 直接看 registry type
+        if a["provider"] != "openai_proxy":
+            return meta.get("type") == "window"
+        # 自定义 API：type 由账户 config.account_type 决定（默认 balance）
+        import json as _json
+        try:
+            cfg = _json.loads(a.get("config_json") or "{}")
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        return str(cfg.get("account_type") or "balance").lower() == "window"
 
     window_accounts = [a for a in db.list_accounts() if _is_window_account(a)]
     keys = [a["display_name"] for a in window_accounts]

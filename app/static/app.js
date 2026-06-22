@@ -10,13 +10,13 @@ function app() {
     refreshing: false,
     lastRefresh: '',
     // 表单
-    form: { provider: '', display_name: '', api_key: '', config: { base_url: '', api_format: 'openai' } },
+    form: { provider: '', display_name: '', api_key: '', config: { base_url: '', api_format: 'openai', account_type: 'balance', quota_url: '' } },
     creating: false,
     formError: '',
     // 趋势
     trend: { accountId: '', days: '7', points: [], loading: false, error: '', account: null, chartInstance: null },
-    // 河流图（全部窗口型账户已用%堆叠流动）
-    stream: { days: '7', keys: [], series: [], loading: false, error: '', loaded: false, hasWindowAccounts: true },
+    // 用量热力图（全部窗口型账户已用%的时间分布）
+    heatmap: { days: '7', keys: [], series: [], loading: false, error: '', loaded: false, hasWindowAccounts: true },
     // 通知配置
     notify: {
       notify_serverchan_key: '', notify_telegram_bot_token: '', notify_telegram_chat_id: '',
@@ -32,12 +32,12 @@ function app() {
       const r = await fetch('/api/session').then(r => r.json());
       this.loggedIn = r.logged_in;
       if (this.loggedIn) { await this.loadAccounts(); }
-      // 窗口缩放时重绘河流图与趋势图（防抖）
+      // 窗口缩放时重绘热力图与趋势图（防抖）
       let rt;
       window.addEventListener('resize', () => {
         clearTimeout(rt);
         rt = setTimeout(() => {
-          if (this.tab === 'trend' && this.stream.series.length) this.renderStream();
+          if (this.tab === 'trend' && this.heatmap.series.length) this.renderHeatmap();
           if (this.tab === 'trend' && this.trend.chartInstance) this.renderChart();
         }, 200);
       });
@@ -107,17 +107,20 @@ function app() {
       finally { this.notify.testing = false; }
     },
     async loadModels() {
-      // 模型表已改为纯动态：进入模型 tab 时不预加载静态表，
-      // 改为首次进入时自动拉取各账户的实时模型。
-      if (Object.keys(this.modelsByAccount).length === 0 && this.accounts.length) {
-        await this.refreshAllModels();
-      }
+      // 模型表已改为纯动态：进入模型 tab 时自动拉取各账户的实时模型。
+      // try/catch 保护——任何异常都不应阻断 tab 渲染（账户列表仍要显示）。
+      try {
+        if (Object.keys(this.modelsByAccount).length === 0 && this.accounts.length) {
+          await this.refreshAllModels();
+        }
+      } catch (e) { console.error('loadModels 异常:', e); }
     },
     async refreshAllModels() {
       if (!this.accounts.length) return;
       this.modelsLoading = true;
       try {
         // 并发拉取所有账户的 /v1/models，互不阻塞；以 account.id 为 key 聚合
+        // 每个请求独立 try/catch，单个失败不影响其它；整体外层再兜一层
         const results = await Promise.all(
           this.accounts.map(a =>
             fetch(`/api/accounts/${a.id}/models`)
@@ -133,27 +136,38 @@ function app() {
         }
         // 整体替换触发 Alpine 响应式更新
         this.modelsByAccount = { ...byId };
+      } catch (e) {
+        // 兜底：Promise.all 之外的异常（如 JSON 解析失败）不应让整个 tab 崩
+        console.error('refreshAllModels 异常:', e);
       } finally { this.modelsLoading = false; }
     },
     async createAccount() {
       this.formError = ''; this.creating = true;
       try {
-        // 自定义 API 需带 base_url + api_format；其它 provider 不传 config
+        // 自定义 API 需带 base_url + api_format + account_type；其它 provider 不传 config
         const payload = { provider: this.form.provider, display_name: this.form.display_name, api_key: this.form.api_key };
         if (this.form.provider === 'openai_proxy') {
           const base = (this.form.config?.base_url || '').trim();
           if (!base) throw new Error('请填写 API 站点地址（base_url）');
+          const accountType = this.form.config?.account_type || 'balance';
           payload.config = {
             base_url: base,
             api_format: this.form.config?.api_format || 'openai',
+            account_type: accountType,
           };
+          // Token Plan 需额外校验 quota_url
+          if (accountType === 'window') {
+            const quotaUrl = (this.form.config?.quota_url || '').trim();
+            if (!quotaUrl) throw new Error('Token Plan 需填写用量查询端点 URL（quota_url）');
+            payload.config.quota_url = quotaUrl;
+          }
         }
         const r = await fetch('/api/accounts', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify(payload),
         });
         if (!r.ok) { const e = await r.json(); throw new Error(e.detail || '添加失败'); }
-        this.form = { provider: this.providers[0]?.provider || '', display_name: '', api_key: '', config: { base_url: '', api_format: 'openai' } };
+        this.form = { provider: this.providers[0]?.provider || '', display_name: '', api_key: '', config: { base_url: '', api_format: 'openai', account_type: 'balance', quota_url: '' } };
         await this.loadAccounts();
       } catch (e) { this.formError = e.message; }
       finally { this.creating = false; }
@@ -170,20 +184,20 @@ function app() {
       });
       await this.loadAccounts();
     },
-    async loadStream() {
-      this.stream.loading = true; this.stream.error = '';
+    async loadHeatmap() {
+      this.heatmap.loading = true; this.heatmap.error = '';
       try {
-        const r = await fetch(`/api/history?days=${this.stream.days}`).then(r => r.json());
-        this.stream.keys = r.keys || [];
-        this.stream.series = r.series || [];
-        this.stream.hasWindowAccounts = r.has_window_accounts !== false;
-        this.stream.loaded = true;
-        this.$nextTick(() => this.renderStream());
-      } catch (e) { this.stream.error = e.message; }
-      finally { this.stream.loading = false; }
+        const r = await fetch(`/api/history?days=${this.heatmap.days}`).then(r => r.json());
+        this.heatmap.keys = r.keys || [];
+        this.heatmap.series = r.series || [];
+        this.heatmap.hasWindowAccounts = r.has_window_accounts !== false;
+        this.heatmap.loaded = true;
+        this.$nextTick(() => this.renderHeatmap());
+      } catch (e) { this.heatmap.error = e.message; }
+      finally { this.heatmap.loading = false; }
     },
-    renderStream() {
-      const svgEl = this.$refs.streamchart;
+    renderHeatmap() {
+      const svgEl = this.$refs.heatmap;
       if (!svgEl) return;
 
       // d3 未加载（CDN 失败）：显示降级提示，不报错
@@ -192,74 +206,113 @@ function app() {
         return;
       }
 
-      if (!this.stream.series.length) return;
+      if (!this.heatmap.series.length) return;
 
-      const keys = this.stream.keys;
-      const data = this.stream.series.map(d => ({
-        date: new Date(d.date.replace(' ', 'T')),
-        ...Object.fromEntries(keys.map(k => [k, +d[k] || 0])),
-      }));
+      // 热力图：横轴=时间桶，纵轴=账户，颜色深浅=已用%高低
+      const keys = this.heatmap.keys;
+      const rows = this.heatmap.series;          // 每行 {date, [账户名]: 已用%}
+      const dates = rows.map(d => new Date(d.date.replace(' ', 'T')));
 
-      const W = svgEl.clientWidth || 800, H = svgEl.clientHeight || 360;
-      const margin = { top: 28, right: 16, bottom: 40, left: 48 };
-      const w = W - margin.left - margin.right, h = H - margin.top - margin.bottom;
+      // Y 轴：账户名（band scale，每行一个账户）
+      // X 轴：时间（线性，按桶索引等宽分布更稳定）
+      const W = svgEl.clientWidth || 800;
+      const rowH = 26;                            // 每行高度（含间距）
+      const H = Math.max(120, keys.length * rowH + 50);  // 动态高度
+      const margin = { top: 16, right: 16, bottom: 36, left: 110 };  // 左留宽给账户名
+      const w = W - margin.left - margin.right;
+      const h = keys.length * rowH;
 
       d3.select(svgEl).selectAll('*').remove();
+      svgEl.innerHTML = '';  // 双保险：彻底清空，避免旧渲染残留
       const svg = d3.select(svgEl)
         .attr('viewBox', `0 0 ${W} ${H}`)
         .append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
-      const x = d3.scaleTime().domain(d3.extent(data, d => d.date)).range([0, w]);
-      const y = d3.scaleLinear().range([h, 0]);
+      // 颜色比例尺：0% 浅(emerald) → 70% ember → 90%+ brick
+      // 用 d3.interpolateRgbBasis 在三色间插值
+      const colorScale = d3.scaleLinear()
+        .domain([0, 50, 70, 90, 100])
+        .range([
+          d3.rgb('#D1FAE5'),  // 0%   极浅 emerald
+          d3.rgb('#6EE7B7'),  // 50%  浅 emerald
+          d3.rgb('#FCD34D'),  // 70%  amber
+          d3.rgb('#FB923C'),  // 90%  orange
+          d3.rgb('#DC2626'),  // 100% brick
+        ])
+        .clamp(true);
 
-      // stack + wiggle（居中流动）
-      const stack = d3.stack().keys(keys).offset(d3.stackOffsetWiggle).order(d3.stackOrderInsideOut);
-      const series = stack(data);
-      y.domain([
-        d3.min(series, s => d3.min(s, d => d[0])),
-        d3.max(series, s => d3.max(s, d => d[1])),
-      ]);
+      // 热力单元格：先扁平化成 [{acc, accIdx, date, dateIdx, value}, ...]
+      const cellW = dates.length > 1 ? w / dates.length : w;
+      const cellGap = Math.min(2, cellW * 0.15);
 
-      const palette = ['#0F766E', '#B45309', '#2563EB', '#7C3AED', '#DB2777', '#65A30D', '#0891B2', '#CA8A04'];
-      const color = (i) => palette[i % palette.length];
+      const cells = [];
+      keys.forEach((accName, accIdx) => {
+        rows.forEach((row, dateIdx) => {
+          cells.push({
+            acc: accName,
+            accIdx,
+            date: dates[dateIdx],
+            dateIdx,
+            value: +row[accName] || 0,
+          });
+        });
+      });
 
-      const area = d3.area()
-        .x(d => x(d.data.date))
-        .y0(d => y(d[0]))
-        .y1(d => y(d[1]))
-        .curve(d3.curveCardinal);
+      // 用显式 enter 选择（避免 .join().append('title') 链式陷阱）
+      const cellG = svg.append('g');
+      const cellSel = cellG.selectAll('rect').data(cells).enter().append('rect');
+      cellSel
+        .attr('x', d => d.dateIdx * cellW + cellGap / 2)
+        .attr('y', d => d.accIdx * rowH + 2)
+        .attr('width', Math.max(1, cellW - cellGap))
+        .attr('height', rowH - 4)
+        .attr('rx', 2)
+        .attr('fill', d => d.value === 0 ? '#F3F2EE' : colorScale(d.value))
+        .style('cursor', 'pointer');
+      cellSel.append('title')
+        .text(d => `${d.acc}\n${d3.timeFormat('%m-%d %H:%M')(d.date)}\n已用 ${d.value.toFixed(1)}%`);
 
-      svg.append('g').selectAll('path')
-        .data(series)
-        .join('path')
-        .attr('fill', (_, i) => color(i))
-        .attr('fill-opacity', 0.78)
-        .attr('stroke', '#FAFAF7')
-        .attr('stroke-width', 0.5)
-        .attr('d', area)
-        .style('cursor', 'pointer')
-        .append('title')
-        .text((d, i) => `${keys[i]}`);
+      // Y 轴：账户名
+      svg.append('g')
+        .selectAll('text')
+        .data(keys)
+        .join('text')
+        .attr('x', -10)
+        .attr('y', (_, i) => i * rowH + rowH / 2 + 4)
+        .attr('text-anchor', 'end')
+        .attr('fill', '#6B6B66')
+        .style('font-size', '12px')
+        .style('font-family', 'Hanken Grotesk, sans-serif')
+        .text(k => k.length > 12 ? k.slice(0, 11) + '…' : k);
 
-      // X 轴：根据跨度动态选格式（≤2天显时分，否则日期）
-      const spanHours = (data[data.length - 1].date - data[0].date) / 3600000;
+      // X 轴：时间（根据跨度动态选格式 + tick 数）
+      const xScale = d3.scaleTime().domain(d3.extent(dates)).range([0, w]);
+      const spanHours = (dates[dates.length - 1] - dates[0]) / 3600000;
       const fmt = spanHours <= 48 ? d3.timeFormat('%m-%d %H:%M') : d3.timeFormat('%m-%d');
       const tickCount = Math.min(8, Math.max(3, Math.floor(w / 90)));
       svg.append('g').attr('transform', `translate(0,${h})`)
-        .call(d3.axisBottom(x).ticks(tickCount).tickFormat(fmt))
+        .call(d3.axisBottom(xScale).ticks(tickCount).tickFormat(fmt))
         .call(g => g.select('.domain').remove())
         .call(g => g.selectAll('.tick line').remove())
         .selectAll('text').attr('fill', '#6B6B66').style('font-family', 'Space Mono, monospace').style('font-size', '10px');
 
-      // 图例（顶部，自动换行）
-      const legend = svg.append('g').attr('transform', `translate(0, -16)`);
-      let lx = 0;
-      keys.forEach((k, i) => {
-        const item = legend.append('g').attr('transform', `translate(${lx},0)`);
-        item.append('rect').attr('width', 10).attr('height', 10).attr('fill', color(i));
-        item.append('text').attr('x', 14).attr('y', 9).attr('fill', '#6B6B66').style('font-size', '11px').text(k);
-        lx += 20 + (k.length * 7) + 12;
-      });
+      // 颜色图例（右上角，横向渐变条）
+      const legendW = 140, legendH = 8;
+      const legendX = w - legendW;
+      const legendY = -14;
+      const legendG = svg.append('g').attr('transform', `translate(${legendX},${legendY})`);
+      // 用 0-100 的色块拼渐变
+      const legendSteps = d3.range(0, 101, 5);
+      legendG.selectAll('rect')
+        .data(legendSteps)
+        .join('rect')
+        .attr('x', d => (d / 100) * legendW)
+        .attr('y', 0)
+        .attr('width', legendW / legendSteps.length + 1)
+        .attr('height', legendH)
+        .attr('fill', d => colorScale(d));
+      legendG.append('text').attr('x', 0).attr('y', -2).attr('fill', '#6B6B66').style('font-size', '10px').text('0%');
+      legendG.append('text').attr('x', legendW).attr('y', -2).attr('text-anchor', 'end').attr('fill', '#6B6B66').style('font-size', '10px').text('100%');
     },
     async loadTrend() {
       if (!this.trend.accountId) { this.trend.points = []; return; }
