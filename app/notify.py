@@ -78,10 +78,12 @@ def _send_serverchan(title: str, content: str) -> dict[str, Any]:
 
 
 def _send_telegram(bot_token: str, chat_id: str, title: str, content: str) -> dict[str, Any]:
-    """Telegram Bot sendMessage，用 MarkdownV2 简化转用 HTML。"""
+    """Telegram Bot sendMessage（HTML 模式）。Markdown → TG 支持的 HTML 子集。"""
+    from .notify_render import _escape_html, md_to_html
     try:
         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-        text = f"<b>{_escape_html(title)}</b>\n\n{_escape_html(content)}"
+        # 标题加粗；正文用 md_to_html 转换（输出已转义，TG HTML 安全）
+        text = f"<b>{_escape_html(title)}</b><br><br>{md_to_html(content)}"
         with httpx.Client(timeout=HTTP_TIMEOUT) as client:
             resp = client.post(url, data={
                 "chat_id": chat_id,
@@ -99,7 +101,14 @@ def _send_telegram(bot_token: str, chat_id: str, title: str, content: str) -> di
 
 
 def _send_email(title: str, content: str) -> dict[str, Any]:
-    """邮件发送。content 按 Markdown 原样发（文本邮件）。"""
+    """邮件发送：MIMEMultipart alternative（纯文本兜底 + HTML 优先）。
+
+    content 是 Markdown：纯文本 part 保留原文（不支持 HTML 的客户端可读），
+    HTML part 用 md_to_html 转换并包进极简风外壳。
+    """
+    from email.mime.multipart import MIMEMultipart
+    from .notify_render import email_shell, md_to_html
+
     host = _setting("notify_smtp_host")
     port = int(_setting("notify_smtp_port") or "465")
     user = _setting("notify_smtp_user")
@@ -107,10 +116,13 @@ def _send_email(title: str, content: str) -> dict[str, Any]:
     to = _setting("notify_smtp_to") or user
 
     try:
-        msg = MIMEText(content, "plain", "utf-8")
+        msg = MIMEMultipart("alternative")
         msg["Subject"] = title
         msg["From"] = formataddr(("Token 面板", user))
         msg["To"] = to
+        # RFC 2046：plain 在前、html 在后，客户端按偏好选最优
+        msg.attach(MIMEText(content, "plain", "utf-8"))
+        msg.attach(MIMEText(email_shell(title, md_to_html(content)), "html", "utf-8"))
 
         # 465 用 SSL，其它端口用 STARTTLS
         if port == 465:
@@ -128,10 +140,6 @@ def _send_email(title: str, content: str) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         log.exception("邮件发送异常")
         return {"ok": False, "error": str(e)}
-
-
-def _escape_html(s: str) -> str:
-    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 # ---------------- 测试通知 ----------------
