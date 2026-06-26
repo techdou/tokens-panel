@@ -12,6 +12,7 @@ TESTS = [
     ("中转站 adapter (OpenAI 兼容)", "tests/test_openai_proxy.py"),
     ("真实样本回归", "tests/test_real_samples.py"),
     ("定时 + 历史趋势", "tests/test_scheduler_history.py"),
+    ("余额跨账户历史", "tests/test_balance_history.py"),
     ("告警 + 每日报告", "tests/test_alerts.py"),
     ("动态模型查询", "tests/test_live_models.py"),
     ("模型能力表", "tests/test_models_meta.py"),

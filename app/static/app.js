@@ -15,6 +15,8 @@ function app() {
     formError: '',
     // 趋势
     trend: { accountId: '', days: '7', points: [], loading: false, error: '', account: null, chartInstance: null },
+    // 余额型跨账户对比图
+    balanceChart: { days: '7', keys: [], currencies: [], dates: [], series: [], loading: false, error: '', loaded: false, hasBalanceAccounts: true, chartInstance: null },
     // 用量热力图（全部窗口型账户已用%的时间分布）
     heatmap: { days: '7', keys: [], series: [], loading: false, error: '', loaded: false, hasWindowAccounts: true },
     // 通知配置
@@ -37,6 +39,7 @@ function app() {
       window.addEventListener('resize', () => {
         clearTimeout(rt);
         rt = setTimeout(() => {
+          if (this.tab === 'trend' && this.balanceChart.chartInstance) this.balanceChart.chartInstance.resize();
           if (this.tab === 'trend' && this.heatmap.series.length) this.renderHeatmap();
           if (this.tab === 'trend' && this.trend.chartInstance) this.renderChart();
         }, 200);
@@ -183,6 +186,79 @@ function app() {
         body: JSON.stringify({ enabled: !acc.enabled }),
       });
       await this.loadAccounts();
+    },
+    async loadBalanceChart() {
+      this.balanceChart.loading = true; this.balanceChart.error = '';
+      try {
+        const r = await fetch(`/api/history/balance?days=${this.balanceChart.days}`).then(r => r.json());
+        this.balanceChart.keys = r.keys || [];
+        this.balanceChart.currencies = r.currencies || [];
+        this.balanceChart.dates = r.dates || [];
+        this.balanceChart.series = r.series || [];
+        this.balanceChart.hasBalanceAccounts = r.has_balance_accounts !== false;
+        this.balanceChart.loaded = true;
+        this.$nextTick(() => this.renderBalanceChart());
+      } catch (e) { this.balanceChart.error = e.message; }
+      finally { this.balanceChart.loading = false; }
+    },
+    renderBalanceChart() {
+      const el = this.$refs.balanceChart;
+      if (!el) return;
+      if (!this.balanceChart.chartInstance) {
+        this.balanceChart.chartInstance = echarts.init(el);
+      }
+      if (!this.balanceChart.series.length) return;
+
+      const dates = this.balanceChart.dates.map(d => d.slice(5));  // 'MM-DD' 更紧凑
+      const palette = ['#0F766E', '#B45309', '#2563EB', '#7C3AED', '#DB2777', '#0891B2'];
+      const multiCurrency = this.balanceChart.currencies.length > 1;
+
+      const series = this.balanceChart.series.map((s, i) => ({
+        name: multiCurrency ? `${s.name} (${s.currency})` : s.name,
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 4,
+        connectNulls: true,  // 前向填充后基本无 null，但保险
+        data: s.data,
+        lineStyle: { color: palette[i % palette.length], width: 1.8 },
+        itemStyle: { color: palette[i % palette.length] },
+        areaStyle: this.balanceChart.series.length === 1
+          ? { color: `${palette[i % palette.length]}14` }  // 单线时加浅填充
+          : undefined,
+      }));
+
+      const yName = multiCurrency
+        ? `余额（${this.balanceChart.currencies.join('/')}）`
+        : `余额 (${this.balanceChart.currencies[0] || 'CNY'})`;
+
+      this.balanceChart.chartInstance.setOption({
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: '#17181C', borderColor: '#17181C',
+          textStyle: { color: '#FAFAF7', fontFamily: 'Space Mono, monospace' },
+          valueFormatter: v => v == null ? '—' : Number(v).toFixed(2),
+        },
+        legend: {
+          top: 0,
+          textStyle: { fontFamily: 'Hanken Grotesk, sans-serif', color: '#6B6B66', fontSize: 11 },
+        },
+        grid: { left: 60, right: 20, top: 40, bottom: 50 },
+        xAxis: {
+          type: 'category', data: dates,
+          axisLabel: { color: '#6B6B66', fontFamily: 'Space Mono, monospace', fontSize: 10 },
+          axisLine: { lineStyle: { color: '#E6E4DD' } },
+          axisTick: { show: false },
+        },
+        yAxis: {
+          type: 'value', name: yName, scale: true,
+          nameTextStyle: { color: '#6B6B66', fontFamily: 'Hanken Grotesk, sans-serif', fontSize: 11 },
+          axisLabel: { color: '#6B6B66', fontFamily: 'Space Mono, monospace' },
+          splitLine: { lineStyle: { color: '#E6E4DD', type: 'dashed' } },
+          axisLine: { show: false }, axisTick: { show: false },
+        },
+        series,
+      }, true);
     },
     async loadHeatmap() {
       this.heatmap.loading = true; this.heatmap.error = '';

@@ -458,3 +458,100 @@ def api_history_all(days: int = 7):
         series.append(row)
 
     return {"keys": keys, "series": series, "has_window_accounts": True}
+
+
+@app.get("/api/history/balance", dependencies=[Depends(require_login)])
+def api_history_balance(days: int = 7):
+    """返回所有余额型账户最近 N 天的余额序列，供前端画跨账户对比折线图。
+
+    响应结构（echarts 多线友好）：
+      {
+        "keys": ["我的DeepSeek", "我的中转站", ...],
+        "currencies": ["CNY", "USD"],          # 涉及的币种（用于 Y 轴/图例）
+        "dates": ["2026-06-15 10:00", ...],    # 按天聚合的时间桶
+        "series": [                            # 每个账户一条线
+          {"name": "我的DeepSeek", "currency": "CNY", "data": [12.3, 11.8, ...]}
+        ],
+        "has_balance_accounts": true
+      }
+
+    时间桶策略：按天聚合（取当天最后一次有效余额），跨度大时不会挤成一团。
+    余额型账户：DeepSeek、OpenAI 中转站（balance 型）。
+    """
+    days = max(1, min(90, days))
+    from datetime import timedelta, date as date_cls
+    since = datetime.now() - timedelta(days=days)
+
+    def _is_balance_account(a: dict) -> bool:
+        meta = registry.get_provider_meta(a["provider"])
+        if not meta or not a.get("enabled"):
+            return False
+        if a["provider"] != "openai_proxy":
+            return meta.get("type") == "balance"
+        import json as _json
+        try:
+            cfg = _json.loads(a.get("config_json") or "{}")
+        except Exception:  # noqa: BLE001
+            cfg = {}
+        return str(cfg.get("account_type") or "balance").lower() == "balance"
+
+    balance_accounts = [a for a in db.list_accounts() if _is_balance_account(a)]
+    if not balance_accounts:
+        return {"keys": [], "currencies": [], "dates": [], "series": [], "has_balance_accounts": False}
+
+    # 按天聚合：每天取该账户最后一条有效快照的余额
+    # acc_id -> {date_str: (balance, currency)}
+    acc_daily: dict[int, dict[str, tuple[float, str]]] = {}
+    all_dates: set[str] = set()
+    currencies_seen: set[str] = set()
+
+    for a in balance_accounts:
+        snaps = db.snapshots_since(a["id"], since)
+        daily: dict[str, tuple[float, str]] = {}
+        for s in snaps:
+            if s.get("raw_error") or s.get("type") != "balance":
+                continue
+            bal = s.get("balance")
+            cur = s.get("currency") or "CNY"
+            if bal is None:
+                continue
+            t = s.get("fetched_at")
+            if not t or len(t) < 10:
+                continue
+            day_key = t[:10]  # 'YYYY-MM-DD'
+            # 同一天内取最后一条（snapshots_since 已按时间升序，后写覆盖）
+            daily[day_key] = (float(bal), cur)
+            all_dates.add(day_key)
+            currencies_seen.add(cur)
+        acc_daily[a["id"]] = daily
+
+    if not all_dates:
+        return {
+            "keys": [a["display_name"] for a in balance_accounts],
+            "currencies": sorted(currencies_seen),
+            "dates": [], "series": [],
+            "has_balance_accounts": True,
+        }
+
+    # 按天升序，前向填充缺失天（沿用上一日余额，避免断线）
+    sorted_dates = sorted(all_dates)
+    series = []
+    for a in balance_accounts:
+        daily = acc_daily.get(a["id"], {})
+        # 确定该账户的币种（取最近一条的 currency，默认 CNY）
+        cur = next((v[1] for v in reversed(list(daily.values()))), "CNY")
+        data = []
+        last_val = None
+        for d in sorted_dates:
+            if d in daily:
+                last_val = daily[d][0]
+            data.append(last_val)  # None 表示该账户当时还没有数据
+        series.append({"name": a["display_name"], "currency": cur, "data": data})
+
+    return {
+        "keys": [a["display_name"] for a in balance_accounts],
+        "currencies": sorted(currencies_seen),
+        "dates": sorted_dates,
+        "series": series,
+        "has_balance_accounts": True,
+    }

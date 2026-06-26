@@ -198,7 +198,7 @@
             <nav class="hidden md:flex items-center gap-6 ml-3">
               <button @click="tab='overview'" class="nav-link text-sm pb-1 transition-colors"
                       :class="tab==='overview' ? 'active text-emerald2' : 'text-sub hover:text-ink'">总览</button>
-              <button @click="tab='trend'; loadHeatmap(); loadTrend()" class="nav-link text-sm pb-1 transition-colors"
+              <button @click="tab='trend'; loadBalanceChart(); loadHeatmap(); loadTrend()" class="nav-link text-sm pb-1 transition-colors"
                       :class="tab==='trend' ? 'active text-emerald2' : 'text-sub hover:text-ink'">趋势</button>
               <button @click="tab='models'; loadModels()" class="nav-link text-sm pb-1 transition-colors"
                       :class="tab==='models' ? 'active text-emerald2' : 'text-sub hover:text-ink'">模型</button>
@@ -555,6 +555,33 @@
 
         <!-- ============ 趋势 ============ -->
         <div x-show="tab==='trend'" class="space-y-10">
+          <!-- 余额趋势：全部余额型账户跨账户对比 -->
+          <div>
+            <div class="flex items-end justify-between mb-2 flex-wrap gap-2">
+              <div>
+                <p class="text-[12px] uppercase tracking-ledger text-sub mb-2">趋势 / Trend</p>
+                <h2 class="font-serif text-xl md:text-2xl font-medium">余额趋势</h2>
+                <p class="text-sm text-sub mt-1">所有余额型账户的余额变化对比，一眼看出哪家掉得最快</p>
+              </div>
+              <div class="flex items-center gap-3">
+                <select x-model="balanceChart.days" @change="loadBalanceChart()" class="field-line bg-transparent text-sm">
+                  <option value="7">最近 7 天</option>
+                  <option value="30">最近 30 天</option>
+                  <option value="90">最近 90 天</option>
+                </select>
+                <button @click="loadBalanceChart()" :disabled="balanceChart.loading"
+                        class="text-sm tracking-ledger uppercase border border-line px-4 py-2 hover:border-emerald2 hover:text-emerald2 transition-colors disabled:opacity-40">
+                  <span x-show="!balanceChart.loading">刷新</span>
+                  <span x-show="balanceChart.loading">加载中…</span>
+                </button>
+              </div>
+            </div>
+            <p x-show="balanceChart.error" class="text-sm text-brick mb-4" x-text="balanceChart.error"></p>
+            <p x-show="!balanceChart.loading && balanceChart.loaded && !balanceChart.hasBalanceAccounts" class="text-sm text-sub/60 py-12 text-center italic">尚无余额型账户（如 DeepSeek、OpenAI 中转站），添加后即可看到余额趋势</p>
+            <p x-show="!balanceChart.loading && balanceChart.loaded && balanceChart.hasBalanceAccounts && balanceChart.series.length === 0" class="text-sm text-sub/60 py-12 text-center italic">暂无历史数据（多刷新几次或等定时任务跑一会儿）</p>
+            <div x-show="balanceChart.series.length" x-ref="balanceChart" class="h-[300px] md:h-[360px] w-full"></div>
+          </div>
+
           <!-- 热力图：全部窗口型账户已用%时间分布 -->
           <div>
             <div class="flex items-end justify-between mb-2 flex-wrap gap-2">
@@ -761,7 +788,7 @@
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
             <span class="text-[12px] tracking-ledger">总览</span>
           </button>
-          <button @click="tab='trend'; loadHeatmap(); loadTrend()"
+          <button @click="tab='trend'; loadBalanceChart(); loadHeatmap(); loadTrend()"
                   class="flex flex-col items-center justify-center gap-1 transition-colors"
                   :class="tab==='trend' ? 'text-emerald2' : 'text-sub/60'">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>
