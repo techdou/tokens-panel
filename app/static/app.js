@@ -429,7 +429,7 @@ function app() {
       return { deepseek:'DeepSeek', glm:'智谱 GLM', kimi:'Kimi (Moonshot)', minimax:'MiniMax', openai_proxy:'自定义 API' }[p] || p;
     },
     fmtContext(n) {
-      if (n === null || n === undefined) return '未公开';
+      if (n === null || n === undefined) return '';
       if (n >= 1000000) return (n/1000000).toFixed(0) + 'M';
       if (n >= 1000) return (n/1000).toFixed(0) + 'K';
       return String(n);

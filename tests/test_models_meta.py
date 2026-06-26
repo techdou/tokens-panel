@@ -16,7 +16,7 @@ def test_context_formatting():
     assert models_meta.format_context(131072) == "131K"
     assert models_meta.format_context(1048576) == "1M"
     assert models_meta.format_context(64000) == "64K"
-    assert models_meta.format_context(None) == "未公开"
+    assert models_meta.format_context(None) == ""  # None 返回空串，前端用 — 占位
     print("[PASS] 上下文长度格式化正确")
 
 

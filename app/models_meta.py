@@ -1,23 +1,25 @@
 """模型能力元数据处理（纯动态）。
 
-⚠️ 本模块不再内置任何静态模型表。所有模型信息来自各账户的 /v1/models 实时拉取。
+⚠️ 本模块不内置静态模型表。所有模型信息来自各账户的 /v1/models 实时拉取。
    /v1/models 只能返回「模型 id」和「context 长度」等基础字段，
-   「思考模式 / 最大输出 / 思考参数」等能力信息接口拿不到，统一显示「未知」。
+   「思考模式 / 最大输出 / 思考参数」等能力信息接口拿不到。
 
-展示字段（前端用）：
-  id:           模型 ID（API 调用时用的 model 参数值）
-  name:         展示名（优先用接口返回的 description/display_name，否则回退到 id）
-  context:      上下文窗口（tokens），接口没返回则为 None → 前端显示「未公开」
-  max_output:   最大输出长度（恒为 None，接口拿不到）
-  thinking:     思考模式支持（恒为 "unknown"）
-  thinking_param: 思考参数示例（恒为 None）
-  notes:        备注（恒为「未知（待补充）」）
-  source:       数据来源（恒为 "live"）
-  owned_by:     归属方（接口返回才有）
-
-上下文长度的常识：1K ≈ 750 英文单词 ≈ 500 汉字。
+设计原则（纯展示优化，不补数据）：
+  - 接口有数据（如 Kimi 的 context_length）→ 正常展示并高亮
+  - 接口无数据（思考模式、多数家的 context）→ 不显示「未知」占位，
+    改为提供该家官方文档链接，把「未知」变成「可查证」
+  - 每个 provider 映射一个文档入口 URL，前端生成「查文档」按钮
 """
 from __future__ import annotations
+
+# 各家官方文档入口（模型能力/定价页）。用户点「查文档」跳转这里核实能力。
+PROVIDER_DOC_URLS: dict[str, str] = {
+    "deepseek": "https://api-docs.deepseek.com/quick_start/pricing",
+    "glm": "https://docs.bigmodel.cn/cn/coding-plan/faq",
+    "kimi": "https://platform.kimi.com/docs/api/chat",
+    "minimax": "https://platform.minimaxi.com/docs/guides/pricing-paygo",
+    "openai_proxy": "",  # 中转站地址不固定，不提供
+}
 
 
 def list_models(provider: str | None = None) -> dict:
@@ -30,9 +32,9 @@ def list_models(provider: str | None = None) -> dict:
 
 
 def format_context(n: int | None) -> str:
-    """1000 -> '1K', 131072 -> '128K', 1048576 -> '1M', None -> '未公开'"""
+    """1000 -> '1K', 131072 -> '128K', 1048576 -> '1M', None -> ''（空，前端用 — 占位）"""
     if n is None:
-        return "未公开"
+        return ""
     if n >= 1_000_000:
         return f"{n/1_000_000:.0f}M"
     if n >= 1000:
@@ -40,14 +42,19 @@ def format_context(n: int | None) -> str:
     return str(n)
 
 
-def normalize_live_models(live_models: list) -> list[dict]:
+def doc_url_for(provider: str) -> str:
+    """返回某 provider 的官方文档 URL（无则空串）。"""
+    return PROVIDER_DOC_URLS.get(provider, "")
+
+
+def normalize_live_models(live_models: list, provider: str = "") -> list[dict]:
     """把 /v1/models 实时拉取的模型列表转成前端展示结构。
 
     策略：
       - 直接透传接口返回的字段（id / context_length / owned_by）
       - name 优先取 description 或 display_name，否则回退到 id
-      - 能力字段（thinking / max_output / thinking_param / notes）接口拿不到，
-        统一填「未知」/None，前端据此显示「未知」
+      - 能力字段（thinking 等）接口拿不到，不硬编码「未知」，
+        而是带 doc_url 让前端生成「查文档」链接
       - 同 provider 内按 id 小写去重（兼容厂商偶发重复返回）
     """
     seen_ids: set[str] = set()
@@ -73,11 +80,9 @@ def normalize_live_models(live_models: list) -> list[dict]:
         out.append({
             "id": lid,
             "name": desc or lid,
-            "context": ctx,
-            "max_output": None,                # 接口拿不到
-            "thinking": "unknown",             # 接口拿不到
-            "thinking_param": None,            # 接口拿不到
-            "notes": "未知（待补充）",          # 接口拿不到
+            "context": ctx,                # 接口返回才有，否则 None
+            "has_context": ctx is not None,  # 前端据此决定高亮还是低调
+            "doc_url": doc_url_for(provider),  # 查官方文档链接
             "source": "live",
             "owned_by": owned_by,
         })

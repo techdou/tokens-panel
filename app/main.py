@@ -231,7 +231,7 @@ async def api_live_models(account_id: int):
             "live_error": str(e),
             "fetched_at": datetime.utcnow().isoformat(),
         }
-    normalized = models_meta.normalize_live_models(live)
+    normalized = models_meta.normalize_live_models(live, acc["provider"])
     return {
         "account_id": account_id,
         "provider": acc["provider"],

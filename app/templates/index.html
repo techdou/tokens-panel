@@ -641,8 +641,8 @@
               </button>
             </div>
             <p class="text-sm text-sub mb-8 max-w-2xl">
-              数据实时来自各账户的 <code class="font-mono text-emerald2">/v1/models</code>，点上方「刷新」即可同步厂商最新模型。
-              <span class="text-ember">接口只返回模型 ID 与上下文长度；思考模式、最大输出等能力信息需查官方文档，此页统一标「未知」。</span>
+              模型列表实时来自各账户的 <code class="font-mono text-emerald2">/v1/models</code>，点上方「刷新」同步厂商最新模型。
+              <span class="text-ember">接口只返回模型 ID（少数家如 Kimi 附带上下文长度）；思考模式、最大输出等能力厂商不通过 API 暴露，请点「查文档」到官网核实。</span>
             </p>
 
             <!-- 空状态 -->
@@ -684,7 +684,7 @@
                       <tr class="text-left text-[12px] uppercase tracking-ledger text-sub hairline-b">
                         <th class="py-2.5 pr-4 font-medium">模型</th>
                         <th class="py-2.5 px-4 font-medium">上下文</th>
-                        <th class="py-2.5 px-4 font-medium">思考模式</th>
+                        <th class="py-2.5 px-4 font-medium">能力</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -694,14 +694,26 @@
                             <div class="font-mono text-xs text-emerald2" x-text="m.id"></div>
                             <div class="text-xs text-sub mt-0.5" x-show="m.name && m.name !== m.id" x-text="m.name"></div>
                           </td>
-                          <td class="py-3 px-4 font-mono tabular text-sub" x-text="fmtContext(m.context)"></td>
+                          <td class="py-3 px-4 font-mono tabular"
+                              :class="m.has_context ? 'text-ink' : 'text-sub/30'">
+                            <span x-show="m.has_context" x-text="fmtContext(m.context)"></span>
+                            <span x-show="!m.has_context">—</span>
+                          </td>
                           <td class="py-3 px-4">
-                            <span class="inline-block px-2 py-0.5 text-[12px] tracking-ledger bg-line/60 text-sub/70">未知</span>
+                            <a x-show="m.doc_url" :href="m.doc_url" target="_blank" rel="noopener"
+                               class="inline-flex items-center gap-1 text-[12px] text-emerald2/80 hover:text-emerald2 hover:underline">
+                              查文档
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17l9.2-9.2M17 17V7H7"></path></svg>
+                            </a>
+                            <span x-show="!m.doc_url" class="text-[12px] text-sub/30">—</span>
                           </td>
                         </tr>
                       </template>
                     </tbody>
                   </table>
+                  <p class="text-[12px] text-sub/50 mt-2 italic">
+                    上下文仅在该家接口返回时显示（如 Kimi）；思考模式、最大输出等需查官方文档确认。
+                  </p>
                 </div>
 
                 <!-- 手机卡片 -->
@@ -713,12 +725,17 @@
                           <code class="font-mono text-xs text-emerald2 block" x-text="m.id"></code>
                           <p class="text-xs text-sub mt-0.5" x-show="m.name && m.name !== m.id" x-text="m.name"></p>
                         </div>
-                        <span class="inline-block px-2 py-0.5 text-[12px] tracking-ledger bg-line/60 text-sub/70 shrink-0">未知</span>
+                        <a x-show="m.doc_url" :href="m.doc_url" target="_blank" rel="noopener"
+                           class="inline-flex items-center gap-1 text-[12px] text-emerald2/80 hover:text-emerald2 shrink-0">
+                          查文档
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17l9.2-9.2M17 17V7H7"></path></svg>
+                        </a>
                       </div>
                       <div class="grid grid-cols-1 gap-1 mt-3 text-[12px]">
                         <div>
                           <span class="text-sub/70 uppercase tracking-ledger">上下文 </span>
-                          <span class="font-mono tabular" x-text="fmtContext(m.context)"></span>
+                          <span class="font-mono tabular" :class="m.has_context ? 'text-ink' : 'text-sub/30'"
+                                x-text="m.has_context ? fmtContext(m.context) : '—'"></span>
                         </div>
                       </div>
                     </div>
