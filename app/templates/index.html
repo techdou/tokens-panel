@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <title>Token 余额聚合</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
@@ -143,6 +145,7 @@
     <div class="min-h-screen flex items-center justify-center px-5">
       <div class="w-full max-w-sm stagger">
         <div class="mb-10">
+          <img src="/static/logo.svg" alt="" width="44" height="44" class="mb-5">
           <p class="text-[12px] uppercase tracking-ledger text-sub mb-2">Console</p>
           <h1 class="font-serif text-[2.1rem] leading-none font-light">Token<br>余额聚合</h1>
         </div>
@@ -175,11 +178,14 @@
       <header class="sticky top-0 z-30 bg-paper/85 backdrop-blur-md hairline-b">
         <div class="max-w-6xl mx-auto px-5 md:px-8 h-16 flex items-center justify-between">
           <!-- 品牌 -->
-          <div class="flex items-baseline gap-3">
-            <h1 class="font-serif text-lg md:text-xl font-medium leading-none">Token 余额聚合</h1>
-            <span class="hidden md:inline text-[12px] text-sub tabular" x-show="lastRefresh">
-              <span class="text-sub/60">last</span> <span x-text="lastRefresh"></span>
-            </span>
+          <div class="flex items-center gap-3">
+            <img src="/static/logo.svg" alt="" width="28" height="28" class="shrink-0">
+            <div class="flex items-baseline gap-3">
+              <h1 class="font-serif text-lg md:text-xl font-medium leading-none">Token 余额聚合</h1>
+              <span class="hidden md:inline text-[12px] text-sub tabular" x-show="lastRefresh">
+                <span class="text-sub/60">last</span> <span x-text="lastRefresh"></span>
+              </span>
+            </div>
           </div>
 
           <!-- 右侧操作 -->
