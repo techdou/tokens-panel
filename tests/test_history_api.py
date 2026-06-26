@@ -123,6 +123,6 @@ if __name__ == "__main__":
     test_no_window_accounts()
     test_window_account_no_snapshots()
     test_forward_fill_no_zero_drops()
-    test_minute_buckets_collapse()
+    test_minute_bucket_collapse()
     test_balance_account_excluded()
     print("\n=== /api/history 河流图端点测试全部通过 ===")
