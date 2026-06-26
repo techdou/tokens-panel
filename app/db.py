@@ -238,3 +238,20 @@ def list_notify_logs(limit: int = 50) -> list[dict[str, Any]]:
             "SELECT * FROM notify_logs ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ---------------- 告警状态（edge trigger 用）----------------
+# 复用 settings 表存每账户最后的告警状态，key=alert_state:{account_id}，value="1"/"0"
+
+
+def get_last_alert_state(account_id: int) -> bool | None:
+    """返回某账户最后是否处于告警状态。无记录返回 None（首次判定）。"""
+    v = get_setting(f"alert_state:{account_id}")
+    if v is None:
+        return None
+    return v == "1"
+
+
+def set_last_alert_state(account_id: int, triggered: bool) -> None:
+    """更新某账户的告警状态（edge trigger 比对用）。"""
+    set_setting(f"alert_state:{account_id}", "1" if triggered else "0")
