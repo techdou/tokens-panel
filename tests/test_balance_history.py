@@ -37,17 +37,26 @@ def test_no_balance_accounts():
 
 
 def test_balance_account_no_snapshots():
-    """有余额型账户但无快照 → 空 series，has_balance_accounts=True。"""
+    """有余额型账户但无快照 → 返回完整连续日期范围，series 含账户但 data 全 None。
+
+    修复后行为：日期范围必须是连续 [起始日..今天]，即使无快照也不返回空 dates，
+    否则图表只显示有数据的天（用户报告的"只显示一天"bug）。
+    """
     _cleanup()
     db.init_db()
     enc = crypto.encrypt("sk-test")
     db.create_account("deepseek", "我的DS", enc)
     r = api_history_balance(days=7)
     assert r["has_balance_accounts"] is True
-    assert r["series"] == []
     assert r["keys"] == ["我的DS"]
+    # dates 必须是连续的（7天范围 = 起始日到今天，至少 7 个点）
+    assert len(r["dates"]) >= 7
+    # series 含该账户，但 data 全 None（无快照）
+    assert len(r["series"]) == 1
+    assert r["series"][0]["name"] == "我的DS"
+    assert all(v is None for v in r["series"][0]["data"])
     _cleanup()
-    print("[PASS] 有账户无快照 → 空 series")
+    print(f"[PASS] 有账户无快照 → 完整日期范围({len(r['dates'])}天)，series data 全 None")
 
 
 def test_single_balance_account_daily_aggregation():
@@ -104,6 +113,34 @@ def test_forward_fill_missing_days():
     print("[PASS] 前向填充缺失天正确")
 
 
+def test_continuous_date_range_sparse_snapshots():
+    """关键回归：稀疏快照也必须返回连续完整日期范围，不能只显示有快照的天。
+
+    复现用户报告的"只显示一天"bug：账户今天才加，只有 1 个快照，
+    旧逻辑 dates 只含今天 → 图表只显示一天。修复后 dates 应是完整 [起始日..今天]。
+    """
+    _cleanup()
+    db.init_db()
+    enc = crypto.encrypt("sk-test")
+    aid = db.create_account("deepseek", "我的DS", enc)
+    # 只有今天 1 条快照（模拟账户刚添加）
+    today = datetime.now().strftime("%Y-%m-%d")
+    db.add_snapshot(aid, {"type": "balance", "balance": 50.0, "currency": "CNY"},
+                    fetched_at=f"{today} 10:00:00")
+    r = api_history_balance(days=7)
+    # dates 必须是连续 7+1 天（不是只有今天 1 天）
+    assert len(r["dates"]) >= 7, f"日期范围应连续 ≥7 天，实际只有 {len(r['dates'])} 天"
+    # 验证日期连续性（相邻日期差 1 天）
+    from datetime import date as date_cls
+    d_list = [date_cls.fromisoformat(d) for d in r["dates"]]
+    for i in range(1, len(d_list)):
+        assert (d_list[i] - d_list[i-1]).days == 1, f"日期不连续：{d_list[i-1]} → {d_list[i]}"
+    # 今天的值是 50，之前的天是 None（账户当时不存在）
+    assert r["series"][0]["data"][-1] == 50.0
+    _cleanup()
+    print(f"[PASS] 稀疏快照（仅今天）仍返回连续 {len(r['dates'])} 天日期范围")
+
+
 def test_multiple_balance_accounts():
     """多个余额型账户各自一条线。"""
     _cleanup()
@@ -158,6 +195,7 @@ if __name__ == "__main__":
     test_balance_account_no_snapshots()
     test_single_balance_account_daily_aggregation()
     test_forward_fill_missing_days()
+    test_continuous_date_range_sparse_snapshots()
     test_multiple_balance_accounts()
     test_window_accounts_excluded()
     test_days_clamped()

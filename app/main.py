@@ -502,7 +502,6 @@ def api_history_balance(days: int = 7):
     # 按天聚合：每天取该账户最后一条有效快照的余额
     # acc_id -> {date_str: (balance, currency)}
     acc_daily: dict[int, dict[str, tuple[float, str]]] = {}
-    all_dates: set[str] = set()
     currencies_seen: set[str] = set()
 
     for a in balance_accounts:
@@ -521,31 +520,26 @@ def api_history_balance(days: int = 7):
             day_key = t[:10]  # 'YYYY-MM-DD'
             # 同一天内取最后一条（snapshots_since 已按时间升序，后写覆盖）
             daily[day_key] = (float(bal), cur)
-            all_dates.add(day_key)
             currencies_seen.add(cur)
         acc_daily[a["id"]] = daily
 
-    if not all_dates:
-        return {
-            "keys": [a["display_name"] for a in balance_accounts],
-            "currencies": sorted(currencies_seen),
-            "dates": [], "series": [],
-            "has_balance_accounts": True,
-        }
+    # ⚠️ 关键修复：生成连续日期范围 [起始日 .. 今天]，而不是只收集有快照的天。
+    # 否则账户刚加/历史快照稀疏时，图表只显示有数据的少数几天（用户报告的"只显示一天"）。
+    today = datetime.now().date()
+    date_range = [(since.date() + timedelta(days=i)) for i in range((today - since.date()).days + 1)]
+    sorted_dates = [d.isoformat() for d in date_range]
 
-    # 按天升序，前向填充缺失天（沿用上一日余额，避免断线）
-    sorted_dates = sorted(all_dates)
+    # 无任何有效快照 → 仍返回完整日期范围（series 全 None），让前端显示空图而非报错
     series = []
     for a in balance_accounts:
         daily = acc_daily.get(a["id"], {})
-        # 确定该账户的币种（取最近一条的 currency，默认 CNY）
         cur = next((v[1] for v in reversed(list(daily.values()))), "CNY")
         data = []
         last_val = None
         for d in sorted_dates:
             if d in daily:
                 last_val = daily[d][0]
-            data.append(last_val)  # None 表示该账户当时还没有数据
+            data.append(last_val)  # None 表示该账户当时还没有数据（前向填充已处理）
         series.append({"name": a["display_name"], "currency": cur, "data": data})
 
     return {
