@@ -675,7 +675,7 @@
             </div>
             <p class="text-sm text-sub mb-8 max-w-2xl">
               模型列表实时来自各账户的 <code class="font-mono text-emerald2">/v1/models</code>，点上方「刷新」同步厂商最新模型。
-              <span class="text-ember">接口只返回模型 ID（少数家如 Kimi 附带上下文长度）；思考模式、最大输出等能力厂商不通过 API 暴露，请点「查文档」到官网核实。</span>
+              <span class="text-ember">接口只返回模型 ID；思考模式、最大输出、上下文等能力详情请点平台标题的「查文档」到官网核实。</span>
             </p>
 
             <!-- 空状态 -->
@@ -687,95 +687,46 @@
               <p class="text-sm text-sub/70 mb-4">点击右上「刷新所有模型」拉取各账户的实时模型列表</p>
             </div>
 
-            <!-- 按账户分组展示 -->
+            <!-- 按账户分组：每个账户一个卡片，标题含「查文档」链接，模型 ID 流式展示 -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <template x-for="acc in accounts" :key="'m-'+acc.id">
-              <div class="mb-10" x-show="modelsByAccount[acc.id]">
-                <div class="flex items-baseline justify-between mb-3 pb-2 hairline-b flex-wrap gap-2">
-                  <h3 class="font-serif text-lg font-medium">
-                    <span x-text="acc.display_name"></span>
-                    <span class="text-sm text-sub font-sans ml-2" x-text="providerDisplayName(acc.provider)"></span>
-                  </h3>
-                  <span class="text-[12px] text-sub tabular" x-show="modelsByAccount[acc.id]?.fetched_at">
-                    拉取于 <span x-text="fmtTime(modelsByAccount[acc.id]?.fetched_at)"></span>
-                  </span>
+              <div class="account-card" x-show="modelsByAccount[acc.id]">
+                <!-- 卡片头：账户名 + 查文档（平台级，一个账户一个链接） -->
+                <div class="flex items-center justify-between mb-3 pb-2.5 hairline-b">
+                  <div class="min-w-0">
+                    <h3 class="font-serif text-base font-medium truncate" x-text="acc.display_name"></h3>
+                    <p class="text-[12px] text-sub mt-0.5" x-text="providerDisplayName(acc.provider)"></p>
+                  </div>
+                  <a x-show="modelsByAccount[acc.id]?.models?.[0]?.doc_url"
+                     :href="modelsByAccount[acc.id]?.models?.[0]?.doc_url || '#'"
+                     target="_blank" rel="noopener"
+                     class="inline-flex items-center gap-1 text-[12px] text-emerald2/80 hover:text-emerald2 hover:underline shrink-0 ml-3">
+                    查文档
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17l9.2-9.2M17 17V7H7"></path></svg>
+                  </a>
                 </div>
 
-                <!-- 拉取失败 -->
-                <p x-show="modelsByAccount[acc.id]?.live_error" class="text-sm text-brick mb-3 flex items-start gap-1.5">
-                  <svg class="shrink-0 mt-0.5" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                  <span x-text="modelsByAccount[acc.id]?.live_error"></span>
-                </p>
-
-                <!-- 空结果 -->
-                <p x-show="!modelsByAccount[acc.id]?.live_error && (modelsByAccount[acc.id]?.models || []).length === 0"
-                   class="text-sm text-sub/60 italic">该账户未返回任何模型</p>
-
-                <!-- PC 表格 -->
-                <div class="hidden md:block overflow-x-auto" x-show="(modelsByAccount[acc.id]?.models || []).length">
-                  <table class="w-full text-sm">
-                    <thead>
-                      <tr class="text-left text-[12px] uppercase tracking-ledger text-sub hairline-b">
-                        <th class="py-2.5 pr-4 font-medium">模型</th>
-                        <th class="py-2.5 px-4 font-medium">上下文</th>
-                        <th class="py-2.5 px-4 font-medium">能力</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <template x-for="m in (modelsByAccount[acc.id]?.models || [])" :key="m.id">
-                        <tr class="hairline-b hover:bg-emerald2/[0.03]">
-                          <td class="py-3 pr-4">
-                            <div class="font-mono text-xs text-emerald2" x-text="m.id"></div>
-                            <div class="text-xs text-sub mt-0.5" x-show="m.name && m.name !== m.id" x-text="m.name"></div>
-                          </td>
-                          <td class="py-3 px-4 font-mono tabular"
-                              :class="m.has_context ? 'text-ink' : 'text-sub/30'">
-                            <span x-show="m.has_context" x-text="fmtContext(m.context)"></span>
-                            <span x-show="!m.has_context">—</span>
-                          </td>
-                          <td class="py-3 px-4">
-                            <a x-show="m.doc_url" :href="m.doc_url" target="_blank" rel="noopener"
-                               class="inline-flex items-center gap-1 text-[12px] text-emerald2/80 hover:text-emerald2 hover:underline">
-                              查文档
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17l9.2-9.2M17 17V7H7"></path></svg>
-                            </a>
-                            <span x-show="!m.doc_url" class="text-[12px] text-sub/30">—</span>
-                          </td>
-                        </tr>
-                      </template>
-                    </tbody>
-                  </table>
-                  <p class="text-[12px] text-sub/50 mt-2 italic">
-                    上下文仅在该家接口返回时显示（如 Kimi）；思考模式、最大输出等需查官方文档确认。
-                  </p>
+                <!-- 拉取时间 + 模型数量 -->
+                <div class="flex items-center justify-between mb-3 text-[12px] text-sub">
+                  <span x-show="modelsByAccount[acc.id]?.live_error" class="text-brick" x-text="modelsByAccount[acc.id]?.live_error"></span>
+                  <span x-show="!modelsByAccount[acc.id]?.live_error && (modelsByAccount[acc.id]?.models || []).length"
+                        class="tabular">共 <span x-text="(modelsByAccount[acc.id]?.models || []).length"></span> 个模型</span>
+                  <span x-show="!modelsByAccount[acc.id]?.live_error && (modelsByAccount[acc.id]?.models || []).length === 0"
+                        class="italic text-sub/60">未返回任何模型</span>
+                  <span class="tabular text-sub/60" x-show="modelsByAccount[acc.id]?.fetched_at"
+                        x-text="fmtTime(modelsByAccount[acc.id]?.fetched_at)"></span>
                 </div>
 
-                <!-- 手机卡片 -->
-                <div class="md:hidden space-y-3" x-show="(modelsByAccount[acc.id]?.models || []).length">
+                <!-- 模型 ID 流式展示（chip/tag 风格，比表格更简洁） -->
+                <div x-show="(modelsByAccount[acc.id]?.models || []).length" class="flex flex-wrap gap-1.5">
                   <template x-for="m in (modelsByAccount[acc.id]?.models || [])" :key="m.id">
-                    <div class="p-4 bg-card hairline-t hairline-b">
-                      <div class="flex items-start justify-between gap-3 mb-2">
-                        <div class="min-w-0">
-                          <code class="font-mono text-xs text-emerald2 block" x-text="m.id"></code>
-                          <p class="text-xs text-sub mt-0.5" x-show="m.name && m.name !== m.id" x-text="m.name"></p>
-                        </div>
-                        <a x-show="m.doc_url" :href="m.doc_url" target="_blank" rel="noopener"
-                           class="inline-flex items-center gap-1 text-[12px] text-emerald2/80 hover:text-emerald2 shrink-0">
-                          查文档
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17l9.2-9.2M17 17V7H7"></path></svg>
-                        </a>
-                      </div>
-                      <div class="grid grid-cols-1 gap-1 mt-3 text-[12px]">
-                        <div>
-                          <span class="text-sub/70 uppercase tracking-ledger">上下文 </span>
-                          <span class="font-mono tabular" :class="m.has_context ? 'text-ink' : 'text-sub/30'"
-                                x-text="m.has_context ? fmtContext(m.context) : '—'"></span>
-                        </div>
-                      </div>
-                    </div>
+                    <span class="inline-block px-2.5 py-1 text-xs font-mono border border-line text-emerald2/90 rounded-sm hover:border-emerald2/40 hover:bg-emerald2/[0.03] transition-colors"
+                          x-text="m.id"></span>
                   </template>
                 </div>
               </div>
             </template>
+            </div>
           </div>
 
           <button @click="tab='overview'" class="text-sm text-sub hover:text-emerald2 transition-colors flex items-center gap-1.5">
