@@ -147,24 +147,27 @@ function app() {
     async createAccount() {
       this.formError = ''; this.creating = true;
       try {
-        // 自定义 API 需带 base_url + api_format + account_type；其它 provider 不传 config
         const payload = { provider: this.form.provider, display_name: this.form.display_name, api_key: this.form.api_key };
+        // 所有 provider 都传 config（至少含 doc_url）；自定义 API 额外带 base_url 等
+        const config = {};
+        const docUrl = (this.form.config?.doc_url || '').trim();
+        if (docUrl) config.doc_url = docUrl;
+
         if (this.form.provider === 'openai_proxy') {
           const base = (this.form.config?.base_url || '').trim();
           if (!base) throw new Error('请填写 API 站点地址（base_url）');
           const accountType = this.form.config?.account_type || 'balance';
-          payload.config = {
-            base_url: base,
-            api_format: this.form.config?.api_format || 'openai',
-            account_type: accountType,
-          };
+          config.base_url = base;
+          config.api_format = this.form.config?.api_format || 'openai';
+          config.account_type = accountType;
           // Token Plan 需额外校验 quota_url
           if (accountType === 'window') {
             const quotaUrl = (this.form.config?.quota_url || '').trim();
             if (!quotaUrl) throw new Error('Token Plan 需填写用量查询端点 URL（quota_url）');
-            payload.config.quota_url = quotaUrl;
+            config.quota_url = quotaUrl;
           }
         }
+        if (Object.keys(config).length) payload.config = config;
         const r = await fetch('/api/accounts', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify(payload),
@@ -186,6 +189,20 @@ function app() {
         body: JSON.stringify({ enabled: !acc.enabled }),
       });
       await this.loadAccounts();
+    },
+    async saveDocUrl(acc) {
+      const docUrl = (acc._doc_url || '').trim();
+      // 合并现有 config + 新 doc_url
+      const mergedConfig = { ...(acc.config || {}), doc_url: docUrl };
+      try {
+        const r = await fetch(`/api/accounts/${acc.id}`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ config: mergedConfig }),
+        });
+        if (!r.ok) throw new Error('保存失败');
+        acc._editing = false;
+        await this.loadAccounts();
+      } catch (e) { alert(e.message); }
     },
     async loadBalanceChart() {
       this.balanceChart.loading = true; this.balanceChart.error = '';

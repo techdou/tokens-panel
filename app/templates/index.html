@@ -462,15 +462,34 @@
                   <div class="flex-1 min-w-0">
                     <p class="font-medium truncate" x-text="acc.display_name"></p>
                     <p class="text-xs text-sub mt-0.5" x-text="providerLabel(acc.provider)"></p>
+                    <p class="text-[11px] text-sub/50 mt-0.5" x-show="acc.config?.doc_url">
+                      文档：<span class="font-mono" x-text="acc.config?.doc_url"></span>
+                    </p>
                   </div>
                   <div class="flex items-center gap-2 shrink-0">
                     <button @click="toggleEnabled(acc)"
                             class="text-[12px] px-3 py-1.5 border tracking-ledger uppercase transition-colors"
                             :class="acc.enabled ? 'border-emerald2 text-emerald2' : 'border-line text-sub/60'"
                             x-text="acc.enabled ? '启用中' : '已停用'"></button>
+                    <button @click="acc._editing = !acc._editing; if (acc._editing && !acc._doc_url) acc._doc_url = acc.config?.doc_url || ''"
+                            class="text-[12px] px-3 py-1.5 border border-line text-sub hover:border-emerald2 hover:text-emerald2 tracking-ledger uppercase transition-colors"
+                            x-text="acc._editing ? '收起' : '编辑'"></button>
                     <button @click="deleteAccount(acc)"
                             class="text-[12px] px-3 py-1.5 border border-line text-brick/80 hover:border-brick hover:bg-brick/5 tracking-ledger uppercase transition-colors">删除</button>
                   </div>
+                </div>
+                <!-- 内联编辑区 -->
+                <div x-show="acc._editing" x-transition class="pb-4 px-1 md:px-10" x-cloak>
+                  <label class="block text-[12px] uppercase tracking-ledger text-sub mb-1.5">文档地址</label>
+                  <div class="flex gap-2">
+                    <input x-model="acc._doc_url" placeholder="https://platform.example.com/docs/pricing"
+                           class="field-line flex-1 font-mono text-sm">
+                    <button @click="saveDocUrl(acc)"
+                            class="text-[12px] px-4 py-1.5 bg-ink text-paper tracking-ledger uppercase hover:bg-emerald2 transition-colors shrink-0">
+                      保存
+                    </button>
+                  </div>
+                  <p class="text-[12px] text-sub/60 mt-1.5">填后「模型」页该账户会出现「查文档」链接。留空则用该家内置地址。</p>
                 </div>
               </template>
               <p x-show="accounts.length===0" class="text-sm text-sub/60 text-center py-10">暂无账户</p>
