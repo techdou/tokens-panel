@@ -47,16 +47,20 @@ def doc_url_for(provider: str) -> str:
     return PROVIDER_DOC_URLS.get(provider, "")
 
 
-def normalize_live_models(live_models: list, provider: str = "") -> list[dict]:
+def normalize_live_models(live_models: list, provider: str = "", doc_url_override: str = "") -> list[dict]:
     """把 /v1/models 实时拉取的模型列表转成前端展示结构。
 
     策略：
       - 直接透传接口返回的字段（id / context_length / owned_by）
       - name 优先取 description 或 display_name，否则回退到 id
-      - 能力字段（thinking 等）接口拿不到，不硬编码「未知」，
-        而是带 doc_url 让前端生成「查文档」链接
+      - doc_url 优先用用户在账户配置里填的自定义文档地址，
+        没填则回退到该 provider 内置的官方文档 URL
       - 同 provider 内按 id 小写去重（兼容厂商偶发重复返回）
     """
+    # 用户自定义文档地址优先于内置映射；空白视为未填，回退内置
+    _override = (doc_url_override or "").strip()
+    resolved_doc_url = _override if _override else doc_url_for(provider)
+
     seen_ids: set[str] = set()
     out: list[dict] = []
 
@@ -82,7 +86,7 @@ def normalize_live_models(live_models: list, provider: str = "") -> list[dict]:
             "name": desc or lid,
             "context": ctx,                # 接口返回才有，否则 None
             "has_context": ctx is not None,  # 前端据此决定高亮还是低调
-            "doc_url": doc_url_for(provider),  # 查官方文档链接
+            "doc_url": resolved_doc_url,    # 查官方文档链接（用户自定义优先）
             "source": "live",
             "owned_by": owned_by,
         })

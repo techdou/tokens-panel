@@ -10,7 +10,7 @@ function app() {
     refreshing: false,
     lastRefresh: '',
     // 表单
-    form: { provider: '', display_name: '', api_key: '', config: { base_url: '', api_format: 'openai', account_type: 'balance', quota_url: '' } },
+    form: { provider: '', display_name: '', api_key: '', config: { base_url: '', api_format: 'openai', account_type: 'balance', quota_url: '', doc_url: '' } },
     creating: false,
     formError: '',
     // 趋势
@@ -170,7 +170,7 @@ function app() {
           body: JSON.stringify(payload),
         });
         if (!r.ok) { const e = await r.json(); throw new Error(e.detail || '添加失败'); }
-        this.form = { provider: this.providers[0]?.provider || '', display_name: '', api_key: '', config: { base_url: '', api_format: 'openai', account_type: 'balance', quota_url: '' } };
+        this.form = { provider: this.providers[0]?.provider || '', display_name: '', api_key: '', config: { base_url: '', api_format: 'openai', account_type: 'balance', quota_url: '', doc_url: '' } };
         await this.loadAccounts();
       } catch (e) { this.formError = e.message; }
       finally { this.creating = false; }

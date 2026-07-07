@@ -429,6 +429,17 @@
                        :placeholder="form.provider === 'openai_proxy' ? 'sk-…（API 令牌）' : 'sk-…'"
                        class="field-line w-full font-mono text-sm">
               </div>
+              <div class="md:col-span-2">
+                <label class="block text-[12px] uppercase tracking-ledger text-sub mb-2">文档地址 <span class="text-sub/60 normal-case tracking-normal">（选填）</span></label>
+                <input x-model="form.config.doc_url"
+                       placeholder="https://platform.example.com/docs/pricing"
+                       class="field-line w-full font-mono text-sm">
+                <p class="text-[12px] text-sub/70 mt-1.5">
+                  填写后，「模型」页该账户的每个模型行会出现「查文档 ↗」链接，直接跳到这个地址。
+                  <span x-show="form.provider !== 'openai_proxy'" class="text-sub/50">不填则用该家内置文档地址。</span>
+                  <span x-show="form.provider === 'openai_proxy'" class="text-sub/50">中转站无内置地址，不填则不显示「查文档」。</span>
+                </p>
+              </div>
               <div class="md:col-span-2 flex items-center gap-4 pt-2">
                 <button type="submit" :disabled="creating"
                         class="bg-ink text-paper text-sm tracking-ledger uppercase px-6 py-3 hover:bg-emerald2 transition-colors disabled:opacity-40">

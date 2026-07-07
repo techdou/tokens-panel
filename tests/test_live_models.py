@@ -43,6 +43,24 @@ def test_normalize_doc_url_by_provider():
     print("[PASS] doc_url 按 provider 映射正确")
 
 
+def test_normalize_doc_url_user_override():
+    """用户自定义 doc_url 优先于内置映射。"""
+    user_url = "https://my-custom-docs.example.com/pricing"
+    # 内置 deepseek 有映射，但用户填的应优先
+    out = models_meta.normalize_live_models([LiveModel(id="m1")], "deepseek", doc_url_override=user_url)
+    assert out[0]["doc_url"] == user_url
+    # 未知 provider + 用户填了 → 用用户的
+    out2 = models_meta.normalize_live_models([LiveModel(id="m1")], "unknown", doc_url_override=user_url)
+    assert out2[0]["doc_url"] == user_url
+    # 用户传空串 → 回退内置
+    out3 = models_meta.normalize_live_models([LiveModel(id="m1")], "deepseek", doc_url_override="")
+    assert out3[0]["doc_url"] == models_meta.PROVIDER_DOC_URLS["deepseek"]
+    # 用户传空白 → 视为空，回退内置
+    out4 = models_meta.normalize_live_models([LiveModel(id="m1")], "deepseek", doc_url_override="  ")
+    assert out4[0]["doc_url"] == models_meta.PROVIDER_DOC_URLS["deepseek"]
+    print("[PASS] 用户自定义 doc_url 优先于内置映射（空/空白回退内置）")
+
+
 def test_normalize_name_from_description():
     """name 优先取 description/display_name，否则回退到 id。"""
     with_desc = [LiveModel(id="m1", description="My Model")]
@@ -123,6 +141,7 @@ if __name__ == "__main__":
     test_normalize_empty()
     test_normalize_basic_fields()
     test_normalize_doc_url_by_provider()
+    test_normalize_doc_url_user_override()
     test_normalize_name_from_description()
     test_normalize_dedup_case_insensitive()
     test_normalize_context_none_when_missing()

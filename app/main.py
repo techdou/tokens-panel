@@ -231,7 +231,9 @@ async def api_live_models(account_id: int):
             "live_error": str(e),
             "fetched_at": datetime.utcnow().isoformat(),
         }
-    normalized = models_meta.normalize_live_models(live, acc["provider"])
+    # 用户在账户配置里填的文档地址优先于内置映射
+    user_doc_url = str(cfg.get("doc_url") or "")
+    normalized = models_meta.normalize_live_models(live, acc["provider"], doc_url_override=user_doc_url)
     return {
         "account_id": account_id,
         "provider": acc["provider"],
