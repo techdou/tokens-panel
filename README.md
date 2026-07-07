@@ -4,7 +4,7 @@
 
 支持 DeepSeek（余额型）、智谱 GLM / Kimi / MiniMax（Coding Plan 窗口型），统一看板、定时刷新、低额度告警、每日报告。
 
-![type](https://img.shields.io/badge/Python-3.11-blue) ![deploy](https://img.shields.io/badge/deploy-Docker-success)
+![type](https://img.shields.io/badge/Python-3.11-blue) ![deploy](https://img.shields.io/badge/deploy-Docker-success) ![license](https://img.shields.io/badge/license-MIT-green)
 
 ## ✨ 功能
 
@@ -150,4 +150,4 @@ tokens/
 
 ## 📜 License
 
-MIT
+[MIT](./LICENSE) © 2026 techdou
